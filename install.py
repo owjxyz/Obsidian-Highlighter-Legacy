@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install Superier Highlighter 0.0.1 into an existing, closed Obsidian vault."""
+"""Install the latest stable Superier Highlighter release into an existing, closed Obsidian vault."""
 import argparse
 from datetime import datetime
 import hashlib
@@ -9,20 +9,12 @@ from pathlib import Path
 import sys
 import tempfile
 import urllib.request
+from urllib.parse import quote
 
 PLUGIN = "superier-highlighter"
 LEGACY = "reader-highlighter-tags"
-VERSION = "0.0.1"
 REPOSITORY = "owjxyz/Obsidian-Superier-Highlighter"
-ASSETS = {
-    "main.js": "3627ab379655740b95eaba7972e50243b31095d62f9d480ab31102d032ce8ad3",
-    "manifest.json": "02e8678d390f5745499b71ff60693ef3184133c81000b6162ae646150523a021",
-    "styles.css": "96ff6264408b54bfcef7ac68a4cc2beacb86f19d1b9feb835672e890c3735406"
-}
-DEFAULT_HOTKEYS = {
-    "apply-color-1": "A", "apply-color-3": "S", "apply-color-4": "Z",
-    "apply-color-6": "X", "remove-highlight": "Q",
-}
+ASSETS = ("main.js", "manifest.json", "styles.css")
 
 
 def json_bytes(value):
@@ -33,41 +25,6 @@ def download(url):
     request = urllib.request.Request(url, headers={"User-Agent": "Superier-Highlighter-Installer"})
     with urllib.request.urlopen(request, timeout=30) as response:
         return response.read()
-
-
-def merge_hotkeys(raw, preset, replace_conflicts):
-    # Reuse Basic Color Highlighter's validation and merge rules.
-    current = json.loads(raw)
-    if not isinstance(current, dict):
-        raise ValueError("hotkeys.json must contain a JSON object.")
-    for command, bindings in current.items():
-        if not isinstance(bindings, list):
-            raise ValueError(f"Invalid hotkeys for {command}.")
-        for binding in bindings:
-            if (not isinstance(binding, dict)
-                    or not isinstance(binding.get("key"), str) or not binding["key"]
-                    or not isinstance(binding.get("modifiers"), list)
-                    or any(not isinstance(mod, str) or mod not in {"Mod", "Ctrl", "Meta", "Alt", "Shift"}
-                           for mod in binding["modifiers"])):
-                raise ValueError(f"Invalid key combination for {command}.")
-    def combination(binding):
-        modifiers = {("Meta" if sys.platform == "darwin" else "Ctrl") if mod == "Mod" else mod
-                     for mod in binding["modifiers"]}
-        return frozenset(modifiers), binding["key"].upper()
-
-    reserved = {combination(binding) for bindings in preset.values() for binding in bindings}
-    merged = dict(current)
-    for command, bindings in current.items():
-        if command in preset:
-            continue
-        remaining = [binding for binding in bindings
-                     if combination(binding) not in reserved]
-        if len(remaining) != len(bindings):
-            if not replace_conflicts:
-                raise ValueError(f"Hotkey conflict: {command}. Use --replace-conflicts to reassign it.")
-            merged[command] = remaining
-    merged.update(preset)
-    return json_bytes(merged)
 
 
 def atomic_write(path, content):
@@ -87,39 +44,37 @@ def atomic_write(path, content):
             temporary.unlink()
 
 
-def install(vault, replace_conflicts=False):
+def install(vault):
     config = vault.expanduser().resolve() / ".obsidian"
     if not config.is_dir():
         raise ValueError("Choose an existing vault containing .obsidian.")
     config = config.resolve()
     enabled_path = config / "community-plugins.json"
-    keys_path = config / "hotkeys.json"
     enabled = json.loads(enabled_path.read_bytes()) if enabled_path.exists() else []
     if not isinstance(enabled, list) or any(not isinstance(item, str) for item in enabled):
         raise ValueError("community-plugins.json must contain a list of plugin IDs.")
-    original_keys = keys_path.read_bytes() if keys_path.exists() else b"{}"
-    keys = json.loads(original_keys)
-    if not isinstance(keys, dict):
-        raise ValueError("hotkeys.json must contain an object.")
-    preset = {}
-    for command, bindings in keys.items():
-        if command.startswith(LEGACY + ":"):
-            new_command = PLUGIN + command[len(LEGACY):]
-            preset[new_command] = keys.get(new_command, bindings)
-            preset[command] = []
-    for command, key in DEFAULT_HOTKEYS.items():
-        new_command = PLUGIN + ":" + command
-        preset.setdefault(new_command, keys.get(new_command, [{"modifiers": ["Ctrl"], "key": key}]))
-    updates = {keys_path: merge_hotkeys(original_keys, preset, replace_conflicts)}
-    if set(ASSETS) != {"main.js", "manifest.json", "styles.css"}:
-        raise ValueError("The installer has no verified release checksums.")
-    for name, digest in ASSETS.items():
-        content = download(f"https://github.com/{REPOSITORY}/releases/download/{VERSION}/{name}")
-        if hashlib.sha256(content).hexdigest() != digest:
+    release = json.loads(download(f"https://api.github.com/repos/{REPOSITORY}/releases/latest"))
+    tag = release.get("tag_name")
+    if not isinstance(tag, str) or not tag or release.get("draft") or release.get("prerelease"):
+        raise ValueError("No stable release is available.")
+    version = tag.removeprefix("v")
+    names = {asset["name"] for asset in release.get("assets", [])}
+    if not {*ASSETS, "SHA256SUMS"}.issubset(names):
+        raise ValueError("The latest release is missing required files or checksums.")
+    base = f"https://github.com/{REPOSITORY}/releases/download/{quote(tag, safe='')}/"
+    checksums = {}
+    for line in download(base + "SHA256SUMS").decode("utf-8").splitlines():
+        if line.strip():
+            digest, name = line.split(maxsplit=1)
+            checksums[name.lstrip(" *")] = digest
+    updates = {}
+    for name in ASSETS:
+        content = download(base + name)
+        if hashlib.sha256(content).hexdigest() != checksums.get(name):
             raise ValueError(f"Checksum mismatch: {name}. No settings were changed.")
         if name == "manifest.json":
             metadata = json.loads(content)
-            if metadata.get("id") != PLUGIN or metadata.get("version") != VERSION:
+            if not isinstance(metadata, dict) or metadata.get("id") != PLUGIN or metadata.get("version") != version:
                 raise ValueError("Unexpected release manifest.")
         updates[config / "plugins" / PLUGIN / name] = content
     data = config / "plugins" / PLUGIN / "data.json"
@@ -171,7 +126,7 @@ def install(vault, replace_conflicts=False):
             else:
                 atomic_write(path, before[path])
         raise
-    print(f"Installed Superier Highlighter {VERSION}. Reopen Obsidian.")
+    print(f"Installed Superier Highlighter {version}. Reopen Obsidian.")
     print(f"Backup: {backup}")
     return backup
 
@@ -179,10 +134,9 @@ def install(vault, replace_conflicts=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("vault", nargs="?", type=Path, default=Path.cwd())
-    parser.add_argument("--replace-conflicts", action="store_true", help="Replace only conflicting shortcut bindings.")
     args = parser.parse_args()
     try:
-        install(args.vault, args.replace_conflicts)
+        install(args.vault)
     except (OSError, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)
         sys.exit(1)

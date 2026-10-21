@@ -15,30 +15,21 @@ curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highlighte
 ```
 
 - An optional vault path can be added after `python3 -`.
-- Requires Python. Downloads and verifies the three release files.
-- Backs up changed files, preserves other settings, and migrates Reader Highlighter Tags settings and shortcuts. The old plugin is disabled; its files stay in place.
-- Shortcut conflicts stop installation. Add `--replace-conflicts` to reassign only conflicting bindings.
+- Requires Python 3.9+. Resolves the latest stable release on every run and verifies checksums for all three release files.
+- Backs up changed files, preserves other settings, and migrates Reader Highlighter Tags plugin settings. The old plugin is disabled; its files stay in place.
+- Does not add or change shortcuts. Apply personal shortcuts through [Obsidian Vault Init](https://github.com/owjxyz/Obsidian-Vault-Init).
 - Existing Superier Highlighter settings are preserved.
+- Updates happen when you run the script; it does not install a background updater. Preview releases are excluded. If release lookup or verification fails, the vault stays unchanged.
 
 Manual installation: download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/owjxyz/Obsidian-Superier-Highlighter/releases/latest), place them in `.obsidian/plugins/superier-highlighter/`, then enable **Superier Highlighter**. Community-directory installation becomes available after Obsidian approves the submission.
 
 ## Shortcuts
 
-Select text in Reading View, then press the shortcut. The installer uses the following defaults and preserves migrated shortcuts. Change them in **Settings → Hotkeys → Superier Highlighter**.
-
-| Colour                       | Shortcut           | Saved format |
-| ---------------------------- | ------------------ | ------------ |
-| Red                          | Ctrl + A           | `==🔴text==` |
-| Orange                       | Assign in settings | `==🟠text==` |
-| Yellow                       | Ctrl + S           | `==🟡text==` |
-| Green                        | Ctrl + Z           | `==🟢text==` |
-| Blue                         | Assign in settings | `==🔵text==` |
-| Purple                       | Ctrl + X           | `==🟣text==` |
-| Remove selected highlighting | Ctrl + Q           | Plain text   |
+Assign your preferred keys to colour and removal commands in **Settings → Hotkeys → Superier Highlighter**. Select text in Reading View and press the assigned shortcut.
 
 **Repeat a highlight shortcut:** if an existing highlight contains the selection, its entire highlight and colour marker are removed. Otherwise the shortcut highlights the selection. This also works per line or cell in a multi-line selection.
 
-Toolbar colour buttons recolour only the selected part. The remove button and Ctrl + Q erase only the selected part, keeping surrounding highlights intact.
+Toolbar colour buttons recolour only the selected part. The remove button and removal command erase only the selected part, keeping surrounding highlights intact.
 
 ## Selection behaviour
 

@@ -9,10 +9,21 @@ import install
 assets = {
     "main.js": b"module.exports = class {};\n",
     "styles.css": b".test { color: red; }\n",
-    "manifest.json": json.dumps({"id": install.PLUGIN, "version": install.VERSION}).encode(),
+    "manifest.json": json.dumps({"id": install.PLUGIN, "version": "9.8.7"}).encode(),
 }
-install.ASSETS = {name: hashlib.sha256(content).hexdigest() for name, content in assets.items()}
-install.download = lambda url: assets[url.rsplit("/", 1)[1]]
+checksums = {name: hashlib.sha256(content).hexdigest() for name, content in assets.items()}
+release = {"tag_name": "v9.8.7", "assets": [{"name": name} for name in [*assets, "SHA256SUMS"]]}
+
+def fixture_download(url):
+    if url == f"https://api.github.com/repos/{install.REPOSITORY}/releases/latest":
+        return json.dumps(release).encode()
+    assert "/releases/download/v9.8.7/" in url, url
+    name = url.rsplit("/", 1)[1]
+    if name == "SHA256SUMS":
+        return "".join(f"{digest}  {name}\n" for name, digest in checksums.items()).encode()
+    return assets[name]
+
+install.download = fixture_download
 
 
 with TemporaryDirectory() as directory:
@@ -32,12 +43,9 @@ with TemporaryDirectory() as directory:
     keys.write_text(json.dumps(original))
     original_bytes = keys.read_bytes()
     backup = install.install(vault)
-    assert (backup / "hotkeys.json").read_bytes() == original_bytes
+    assert not (backup / "hotkeys.json").exists()
     assert json.loads(enabled.read_bytes()) == ["other", install.PLUGIN]
-    merged = json.loads(keys.read_bytes())
-    assert merged[install.PLUGIN + ":apply-color-1"] == original[install.LEGACY + ":apply-color-1"]
-    assert merged[install.LEGACY + ":apply-color-1"] == []
-    assert merged["other:command"] == original["other:command"]
+    assert keys.read_bytes() == original_bytes, "Plugin installation must not alter shortcuts"
     target = config / "plugins" / install.PLUGIN
     assert json.loads((target / "data.json").read_bytes())["toolbarPosition"] == "left"
     assert (legacy / "data.json").read_bytes() == settings
@@ -54,30 +62,61 @@ with TemporaryDirectory() as directory:
     assert keys.read_bytes() == before
     assets["main.js"] = b"module.exports = class {};\n"
 
-    # Conflicts are explicit, and replacing one does not delete other bindings.
-    merged["other:conflict"] = [{"modifiers": ["Ctrl"], "key": "S"}, {"modifiers": ["Alt"], "key": "V"}]
-    keys.write_text(json.dumps(merged))
-    before = keys.read_bytes()
-    try:
-        install.install(vault)
-        raise AssertionError("Accepted a shortcut conflict")
-    except ValueError as error:
-        assert "conflict" in str(error).lower()
-    assert keys.read_bytes() == before
-    install.install(vault, replace_conflicts=True)
-    assert json.loads(keys.read_bytes())["other:conflict"] == [{"modifiers": ["Alt"], "key": "V"}]
+    # The standalone plugin installer never creates or parses shortcut settings.
+    fresh = Path(directory) / "Fresh Vault"
+    (fresh / ".obsidian").mkdir(parents=True)
+    install.install(fresh)
+    assert not (fresh / ".obsidian/hotkeys.json").exists()
+    keys.write_bytes(b"malformed settings must be left alone")
+    assert install.install(vault) is None
+    assert keys.read_bytes() == b"malformed settings must be left alone"
 
-    # An interrupted write rolls back already-written settings.
-    keys.write_text("{}")
-    before = keys.read_bytes()
+    # A newly published release is resolved again on the next invocation.
+    release["tag_name"] = "v9.8.8"
+    assets["manifest.json"] = json.dumps({"id": install.PLUGIN, "version": "9.8.8"}).encode()
+    checksums["manifest.json"] = hashlib.sha256(assets["manifest.json"]).hexdigest()
+    def next_release(url):
+        return fixture_download(url.replace("/v9.8.8/", "/v9.8.7/"))
+    install.download = next_release
+    install.install(vault)
+    assert json.loads((target / "manifest.json").read_bytes())["version"] == "9.8.8"
+
+    # Incomplete, preview or mismatched latest releases never replace installed files.
+    original_manifest = assets["manifest.json"]
+    original_release = dict(release)
+    installed_manifest = (target / "manifest.json").read_bytes()
+    for problem in ["preview", "missing", "manifest"]:
+        release.clear()
+        release.update(original_release)
+        if problem == "preview":
+            release["prerelease"] = True
+        elif problem == "missing":
+            release["assets"] = [{"name": "main.js"}]
+        else:
+            assets["manifest.json"] = b'{"id":"wrong-plugin","version":"9.8.8"}'
+            checksums["manifest.json"] = hashlib.sha256(assets["manifest.json"]).hexdigest()
+        try:
+            install.install(vault)
+            raise AssertionError("Accepted an invalid latest release")
+        except ValueError:
+            pass
+        assert (target / "manifest.json").read_bytes() == installed_manifest
+    release.clear()
+    release.update(original_release)
+    assets["manifest.json"] = original_manifest
+    checksums["manifest.json"] = hashlib.sha256(original_manifest).hexdigest()
+
+    # An interrupted plugin write restores the old binary.
+    main = target / "main.js"
+    styles = target / "styles.css"
+    main.write_bytes(b"old main")
+    styles.write_bytes(b"old css")
     actual_write = install.atomic_write
     def fail_once(path, content):
-        if path == keys:
-            actual_write(path, content)
-            return
-        raise OSError("simulated write failure")
+        if path == styles.resolve():
+            raise OSError("simulated write failure")
+        actual_write(path, content)
     install.atomic_write = fail_once
-    enabled.write_text("[]")
     try:
         install.install(vault)
         raise AssertionError("Expected a write failure")
@@ -85,13 +124,14 @@ with TemporaryDirectory() as directory:
         pass
     finally:
         install.atomic_write = actual_write
-    assert keys.read_bytes() == before
+    assert main.read_bytes() == b"old main"
+    assert styles.read_bytes() == b"old css"
 
     # Symlinks cannot redirect installer writes outside the vault.
-    keys.unlink()
-    outside = Path(directory) / "outside.json"
+    main.unlink()
+    outside = Path(directory) / "outside.js"
     outside.write_text("{}")
-    keys.symlink_to(outside)
+    main.symlink_to(outside)
     try:
         install.install(vault)
         raise AssertionError("Accepted a symlink")
@@ -99,4 +139,4 @@ with TemporaryDirectory() as directory:
         pass
     assert outside.read_text() == "{}"
 
-print("PASS: checksums, migration, backups, repeat install, conflicts, rollback, symlink protection")
+print("PASS: plugin-only installation, shortcuts untouched, checksums, settings migration, backups, rollback, symlink protection")
