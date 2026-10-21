@@ -1338,9 +1338,10 @@ var FloatingManager = class {
 };
 
 // src/utils/sourceBlocks.ts
-function kindForTag(tag) {
-  if (!tag) return null;
-  const upper = tag.toUpperCase();
+function kindForElement(element) {
+  if (!element) return null;
+  if (element.matches("li[data-footnote-id]")) return "footnote";
+  const upper = element.tagName.toUpperCase();
   if (/^H[1-6]$/.test(upper)) return "heading";
   if (upper === "LI") return "list";
   if (upper === "TD" || upper === "TH") return "table";
@@ -1458,32 +1459,38 @@ function findBlockAt(blocks, position) {
 init_colors();
 
 // src/utils/strictSelection.ts
-function projectInline(raw, offset) {
+function projectInline(raw, offset, kind) {
   var _a, _b, _c;
   const starts = [];
   const ends = [];
   let text = "";
-  const tokens = /(?:^[ \t]*(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s*)?|\d+[.)]\s+|\[\^[^\]]+\]:\s*))|(?:\*{1,3}|_{1,3}|~~|`+)|(?:\\[\\`*{}[\]()#+\-.!_|>~=])|(?:&(?:#\d+|#x[\da-f]+|[a-z]+);)|[\s\S]/gim;
+  const tokens = /(^[ \t]*(?:>[ \t]*)*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s*)?|\d+[.)]\s+|\[\^[^\]]+\]:\s*)|^[ \t]*(?:>[ \t]*)+)|(`+)([\s\S]*?)\2|(?:\$\$[\s\S]*?\$\$|\$(?!\s)(?:\\[^\n]|[^$\\\n])*?[^\s\\$]\$(?!\d))|(?:\*{1,3}|_{1,3}|~~)|(?:\\[\\`*{}[\]()#+\-.!_|>~=$])|(?:&(?:#\d+|#x[\da-f]+|[a-z]+);)|[\s\S]/gim;
   for (const match of raw.matchAll(tokens)) {
     const token = match[0];
     const intraword = /^_+$/.test(token) && /[\p{L}\p{N}]/u.test((_a = raw[match.index - 1]) != null ? _a : "") && /[\p{L}\p{N}]/u.test((_b = raw[match.index + token.length]) != null ? _b : "");
-    if (!intraword && /^(?:\*{1,3}|_{1,3}|~~|`+)$/.test(token) || token.length > 1 && /^\s*(?:>|#|[-*+]\s|\d+[.)]\s|\[\^)/.test(token))
+    if (match[1] !== void 0 || token.startsWith("$") && token.length > 1 && token.endsWith("$") || !intraword && /^(?:\*{1,3}|_{1,3}|~~)$/.test(token))
       continue;
-    let value = token;
+    const code = match[2] !== void 0;
+    let value = code ? match[3] : token;
     if (token.startsWith("\\") && token.length === 2) value = token[1];
     else if (token.startsWith("&") && token.endsWith(";")) {
       value = (_c = new DOMParser().parseFromString(token, "text/html").body.textContent) != null ? _c : token;
     }
+    let valueIndex = 0;
     for (const char of value) {
+      const sourceStart = offset + match.index + (code ? match[2].length + valueIndex : 0);
+      const sourceEnd = code ? sourceStart + char.length : offset + match.index + token.length;
+      valueIndex += char.length;
+      if (code && kind === "table" && char === "\\" && value[valueIndex] === "|") continue;
       const normalized = /\s/.test(char) ? " " : char;
       if (normalized === " " && (!text || text.endsWith(" "))) {
-        if (text) ends[ends.length - 1] = offset + match.index + token.length;
+        if (text) ends[ends.length - 1] = sourceEnd;
         continue;
       }
       text += normalized;
       for (let i = 0; i < normalized.length; i++) {
-        starts.push(offset + match.index);
-        ends.push(offset + match.index + token.length);
+        starts.push(sourceStart);
+        ends.push(sourceEnd);
       }
     }
   }
@@ -1500,7 +1507,7 @@ function locateAnchoredSelection(raw, hint, occurrence, kind) {
   const blocks = splitSourceBlocks(raw).filter(
     (block2) => block2.kind !== "code" && (!kind || block2.kind === kind || block2.kind === "footnote" && kind === "paragraph")
   );
-  const matching = blocks.map((block2) => projectInline(raw.slice(block2.start, block2.end), block2.start)).filter((block2) => block2.text === hint.blockText);
+  const matching = blocks.map((block2) => projectInline(raw.slice(block2.start, block2.end), block2.start, block2.kind)).filter((block2) => block2.text === hint.blockText);
   if (hint.blockTotal !== void 0 && matching.length !== hint.blockTotal) return null;
   const block = matching[occurrence];
   if (!block) return null;
@@ -1916,7 +1923,7 @@ var SelectionLogic = class {
       // Markdown Images: ![caption](url)
       /!\[[^\]]*\]\([^)]+\)/g,
       // Global HTML Tags (Reading view strips these)
-      /<[^>]+>/g
+      /<!--[\s\S]*?-->|<\/?[a-z][a-z0-9-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\/?>/gi
     ];
     let currentText = text;
     let currentSegments = [...segments];
@@ -4358,7 +4365,7 @@ function readBlockTextAndCaret(block, range) {
   let raw = "";
   let rawCaret = -1;
   const visit = (node) => {
-    var _a;
+    var _a, _b, _c, _d;
     if (node.nodeType === TEXT_NODE) {
       if (node === range.startContainer) {
         rawCaret = raw.length + Math.max(0, range.startOffset);
@@ -4367,7 +4374,9 @@ function readBlockTextAndCaret(block, range) {
       return;
     }
     if (node.nodeType !== ELEMENT_NODE) return;
-    if ((_a = node.classList) == null ? void 0 : _a.contains("footnote-ref")) return;
+    if (((_a = node.classList) == null ? void 0 : _a.contains("footnote-ref")) || ((_b = node.classList) == null ? void 0 : _b.contains("footnote-backref")) || ((_c = node.classList) == null ? void 0 : _c.contains("math")))
+      return;
+    if (node !== block && /^(UL|OL)$/i.test((_d = node.tagName) != null ? _d : "")) return;
     const children = node.childNodes;
     if (node === range.startContainer) {
       let index = 0;
@@ -4961,16 +4970,21 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
     if (!root) return [];
     const selector = Array.from(SMART_SELECTION_TAGS).map((tag) => tag.toLowerCase()).join(", ");
     const blocks = Array.from(root.querySelectorAll(selector)).filter((element) => {
-      var _a;
       const text = this.getElementText(element);
       if (!text) return false;
       try {
-        return range.intersectsNode(element) && !!((_a = this.intersectRangeWithBlock(range, element)) == null ? void 0 : _a.toString().trim());
+        if (!range.intersectsNode(element)) return false;
+        const portion = this.intersectRangeWithBlock(range, element);
+        return !!portion && !!getSelectedOccurrence(element, portion, portion.toString());
       } catch (e) {
         return false;
       }
     });
-    return blocks.filter((element) => !blocks.some((other) => other !== element && other.contains(element)));
+    return blocks.filter(
+      (element) => !blocks.some(
+        (other) => other !== element && other.contains(element) && other.closest("li") === element.closest("li")
+      )
+    );
   }
   getClosestAllowedBlock(node, root) {
     let current = (node == null ? void 0 : node.nodeType) === Node.ELEMENT_NODE ? node : node == null ? void 0 : node.parentElement;
@@ -5007,7 +5021,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       contextText: contextElement ? this.getElementText(contextElement) : null,
       occurrenceIndex: this.getSelectionOccurrence(view, contextElement, hint),
       withinBlock: hint,
-      contextKind: kindForTag(contextElement == null ? void 0 : contextElement.tagName)
+      contextKind: kindForElement(contextElement)
     };
   }
   /**
@@ -5103,7 +5117,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       this.getElementText(block),
       this.getSelectionOccurrence(view, block, hint),
       hint,
-      kindForTag(block.tagName)
+      kindForElement(block)
     );
   }
   /**

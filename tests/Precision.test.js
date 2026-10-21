@@ -19,6 +19,64 @@ async function paint(ctx, snapshot, mode = "color") {
 }
 
 describe("precise Reading View selection", () => {
+    it("highlights the parent list text without including its nested items in the anchor", async () => {
+        const ctx = await setup(
+            "- Investment companies (투자회사)\n  - Mutual funds (뮤추얼 펀드)\n  - Hedge funds (헤지펀드)",
+            "<ul><li>Investment companies (투자회사)<ul><li>Mutual funds (뮤추얼 펀드)</li><li>Hedge funds (헤지펀드)</li></ul></li></ul>"
+        );
+        const node = textNodes(ctx.content)[0];
+        await ctx.plugin.applyColorByIndex(ctx.view, 0, selection(ctx, node, 0, node, 10), true);
+        expect(ctx.out()).toBe(
+            "- ==🔴Investment== companies (투자회사)\n  - Mutual funds (뮤추얼 펀드)\n  - Hedge funds (헤지펀드)"
+        );
+    });
+
+    it.each([false, true])("highlights every word in nested lists (loose: %s), including trusts", async (loose) => {
+        const raw =
+            "- Investment companies (투자회사)\n  - Unit investment trusts (단위투자신탁)\n  - Mutual funds (뮤추얼 펀드)\n- Other organizations\n  1. Closed end funds\n  2. Hedge policies";
+        const tightHtml =
+            "<ul><li>Investment companies (투자회사)<ul><li>Unit investment trusts (단위투자신탁)</li><li>Mutual funds (뮤추얼 펀드)</li></ul></li><li>Other organizations<ol><li>Closed end funds</li><li>Hedge policies</li></ol></li></ul>";
+        const html = loose ? tightHtml.replace(/<li>([^<]+)/g, "<li><p>$1</p>") : tightHtml;
+        const initial = await setup(raw, html);
+        const labels = textNodes(initial.content).map((node) => node.nodeValue);
+        for (let index = 0; index < labels.length; index++) {
+            const label = labels[index];
+            for (const word of label.matchAll(/[\p{L}\p{N}]+/gu)) {
+                for (const [color, emoji] of [
+                    [0, "🔴"],
+                    [1, "🟠"],
+                    [2, "🟡"],
+                    [3, "🟢"],
+                    [4, "🔵"],
+                    [5, "🟣"],
+                ]) {
+                    const ctx = await setup(raw, html);
+                    const node = textNodes(ctx.content)[index];
+                    const start = raw.indexOf(label) + word.index;
+                    await ctx.plugin.applyColorByIndex(
+                        ctx.view,
+                        color,
+                        selection(ctx, node, word.index, node, word.index + word[0].length),
+                        true
+                    );
+                    expect(ctx.out(), `selected ${word[0]} in ${label}, color ${color}`).toBe(
+                        raw.slice(0, start) + "==" + emoji + word[0] + "==" + raw.slice(start + word[0].length)
+                    );
+                }
+            }
+        }
+    });
+
+    it("keeps both parent and child portions of a selection spanning a nested list", async () => {
+        const ctx = await setup(
+            "- first alpha\n  - second beta\n  - third gamma",
+            "<ul><li>first alpha<ul><li>second beta</li><li>third gamma</li></ul></li></ul>"
+        );
+        const nodes = textNodes(ctx.content);
+        await paint(ctx, selection(ctx, nodes[0], 6, nodes[1], 6));
+        expect(ctx.out()).toBe("- first ==🔴alpha==\n  - ==🔴second== beta\n  - third gamma");
+    });
+
     it.each([
         [
             "A [rate](https://example.org) and rate.\n\nA rate and rate.",
@@ -107,6 +165,16 @@ describe("precise Reading View selection", () => {
         expect(ctx.out()).toBe(expected);
     });
 
+    it("highlights footnote prose without including its return links or treating it as a list item", async () => {
+        const ctx = await setup(
+            "A reference[^note].\n\n[^note]: Keep this footnote unchanged.",
+            '<p>A reference<sup class="footnote-ref">1</sup>.</p><section class="footnotes"><ol><li data-footnote-id="fn-1"><p>Keep this footnote unchanged.<a class="footnote-backref">↩︎</a><a class="footnote-backref">↩︎</a></p></li></ol></section>'
+        );
+        const node = ctx.content.querySelector(".footnotes p").firstChild;
+        await paint(ctx, selection(ctx, node, 10, node, 18));
+        expect(ctx.out()).toBe("A reference[^note].\n\n[^note]: Keep this ==🔴footnote== unchanged.");
+    });
+
     it("never falls back to a different digit when a footnote reference is selected", async () => {
         const raw = "Price 1 rate[^a].\n\n[^a]: note";
         const ctx = await setup(raw, '<p>Price 1 rate<sup class="footnote-ref">1</sup>.</p>');
@@ -174,6 +242,59 @@ describe("precise Reading View selection", () => {
         const node = textNodes(ctx.content)[0];
         await paint(ctx, selection(ctx, node, 12, node, 19));
         expect(ctx.out()).toBe("rate 10 and ==🔴rate 20==");
+    });
+
+    it.each([
+        [
+            "> Quoted rate here.",
+            "<blockquote><p>Quoted rate here.</p></blockquote>",
+            "rate",
+            "> Quoted ==🔴rate== here.",
+        ],
+        [
+            "- Hold bonds >>> note <<<\n- Index funds => track",
+            "<ul><li>Hold bonds &gt;&gt;&gt; note &lt;&lt;&lt;</li><li>Index funds =&gt; track</li></ul>",
+            "funds",
+            "- Hold bonds >>> note <<<\n- Index ==🔴funds== => track",
+        ],
+        [
+            "- Hold bonds >>> note <<<\n- Index funds => track",
+            "<ul><li>Hold bonds &gt;&gt;&gt; note &lt;&lt;&lt;</li><li>Index funds =&gt; track</li></ul>",
+            "note",
+            "- Hold bonds >>> ==🔴note== <<<\n- Index funds => track",
+        ],
+        [
+            "NAV $x+y$ rate",
+            '<p>NAV <span class="math math-inline"><mjx-container>x+y</mjx-container></span> rate</p>',
+            "rate",
+            "NAV $x+y$ ==🔴rate==",
+        ],
+        ["Cost $105 then $78 rate", "<p>Cost $105 then $78 rate</p>", "rate", "Cost $105 then $78 ==🔴rate=="],
+        ["Literal \\$x$ rate", "<p>Literal $x$ rate</p>", "rate", "Literal \\$x$ ==🔴rate=="],
+        ["Code `$x$` rate", "<p>Code <code>$x$</code> rate</p>", "rate", "Code `$x$` ==🔴rate=="],
+    ])("keeps prose selectable around source syntax in %s", async (raw, html, word, expected) => {
+        const ctx = await setup(raw, html);
+        const node = textNodes(ctx.content).find((n) => n.nodeValue.includes(word));
+        const start = node.nodeValue.indexOf(word);
+        await paint(ctx, selection(ctx, node, start, node, start + word.length));
+        expect(ctx.out()).toBe(expected);
+    });
+
+    it("recognizes HTML attributes containing literal angle brackets", async () => {
+        const ctx = await setup(
+            'A <span title="x < y > z">rate</span> here',
+            '<p>A <span title="x < y > z">rate</span> here</p>'
+        );
+        const node = ctx.content.querySelector("span").firstChild;
+        await paint(ctx, selection(ctx, node, 0));
+        expect(ctx.out()).toBe('A <span title="x < y > z">==🔴rate==</span> here');
+    });
+
+    it("keeps prose after a multiline inline code span selectable", async () => {
+        const ctx = await setup("before `a\nb` after", "<p>before <code>a b</code> after</p>");
+        const node = textNodes(ctx.content).at(-1);
+        await paint(ctx, selection(ctx, node, 1, node, 6));
+        expect(ctx.out()).toBe("before `a\nb` ==🔴after==");
     });
 
     it("refuses a stale selection when its surrounding text changed", async () => {

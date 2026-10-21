@@ -98,7 +98,14 @@ export function readBlockTextAndCaret(block: NodeLike | null, range: RangeLike |
             return;
         }
         if (node.nodeType !== ELEMENT_NODE) return;
-        if (node.classList?.contains("footnote-ref")) return;
+        if (
+            node.classList?.contains("footnote-ref") ||
+            node.classList?.contains("footnote-backref") ||
+            node.classList?.contains("math")
+        )
+            return;
+        // A source list block owns its text, not the items in a nested list.
+        if (node !== block && /^(UL|OL)$/i.test(node.tagName ?? "")) return;
 
         const children = node.childNodes;
         if (node === range.startContainer) {

@@ -601,7 +601,7 @@ export class SelectionLogic {
             // Markdown Images: ![caption](url)
             /!\[[^\]]*\]\([^)]+\)/g,
             // Global HTML Tags (Reading view strips these)
-            /<[^>]+>/g,
+            /<!--[\s\S]*?-->|<\/?[a-z][a-z0-9-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\/?>/gi,
         ];
 
         let currentText: string = text;

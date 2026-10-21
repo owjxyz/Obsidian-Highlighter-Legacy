@@ -17,10 +17,11 @@ export interface SourceBlock {
     kind: BlockKind;
 }
 
-/** Map a rendered element's tag onto the block kind it came from. */
-export function kindForTag(tag: string | null | undefined): BlockKind | null {
-    if (!tag) return null;
-    const upper = tag.toUpperCase();
+/** Map a rendered element onto the source block it came from. */
+export function kindForElement(element: Element | null | undefined): BlockKind | null {
+    if (!element) return null;
+    if (element.matches("li[data-footnote-id]")) return "footnote";
+    const upper = element.tagName.toUpperCase();
     if (/^H[1-6]$/.test(upper)) return "heading";
     if (upper === "LI") return "list";
     if (upper === "TD" || upper === "TH") return "table";

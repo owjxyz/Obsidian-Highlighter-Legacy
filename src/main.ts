@@ -42,7 +42,7 @@ import {
     type HighlightColor,
 } from "./utils/colors";
 import { getSelectedOccurrence, readBlockTextAndCaret, type SelectionHint } from "./utils/blockOccurrence";
-import { kindForTag, type BlockKind } from "./utils/sourceBlocks";
+import { kindForElement, type BlockKind } from "./utils/sourceBlocks";
 import { editHighlightRange } from "./utils/preciseHighlight";
 import { BulkRecolorModal } from "./modals/BulkRecolorModal";
 
@@ -571,14 +571,22 @@ export default class ReadingHighlighterPlugin extends Plugin {
             const text = this.getElementText(element);
             if (!text) return false;
             try {
-                return (
-                    range.intersectsNode(element) && !!this.intersectRangeWithBlock(range, element)?.toString().trim()
-                );
+                if (!range.intersectsNode(element)) return false;
+                const portion = this.intersectRangeWithBlock(range, element);
+                return !!portion && !!getSelectedOccurrence(element, portion, portion.toString());
             } catch {
                 return false;
             }
         });
-        return blocks.filter((element) => !blocks.some((other) => other !== element && other.contains(element)));
+        // A paragraph inside a list item belongs to that item, but a nested
+        // item owns a separate source block and must keep its own anchor.
+        return blocks.filter(
+            (element) =>
+                !blocks.some(
+                    (other) =>
+                        other !== element && other.contains(element) && other.closest("li") === element.closest("li")
+                )
+        );
     }
 
     getClosestAllowedBlock(node: Node, root: HTMLElement): HTMLElement | null {
@@ -617,7 +625,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
             contextText: contextElement ? this.getElementText(contextElement) : null,
             occurrenceIndex: this.getSelectionOccurrence(view, contextElement, hint),
             withinBlock: hint,
-            contextKind: kindForTag(contextElement?.tagName),
+            contextKind: kindForElement(contextElement),
         };
     }
 
@@ -726,7 +734,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
             this.getElementText(block),
             this.getSelectionOccurrence(view, block, hint),
             hint,
-            kindForTag(block.tagName)
+            kindForElement(block)
         );
     }
 
