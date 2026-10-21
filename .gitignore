@@ -148,3 +148,7 @@ vitest.harness.mjs
 RELEASE-NOTES-*.md
 pr-*-reply.md
 build/
+
+# Python installer test cache
+__pycache__/
+*.pyc

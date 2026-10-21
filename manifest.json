@@ -1,10 +1,10 @@
 {
-    "id": "reader-highlighter-tags",
-    "name": "Reader Highlighter Tags",
-    "version": "2.0.0",
-    "minAppVersion": "1.7.2",
-    "description": "Highlight text and add tags in Reading View.",
-    "author": "DuckTapeKiller",
-    "authorUrl": "https://github.com/DuckTapeKiller",
+    "id": "superier-highlighter",
+    "name": "Superier Highlighter",
+    "version": "0.0.1",
+    "minAppVersion": "1.14.0",
+    "description": "Highlight exact selections in Reading View using surrounding context, with native colours, tags, and annotations.",
+    "author": "owjxyz",
+    "authorUrl": "https://github.com/owjxyz",
     "isDesktopOnly": false
 }

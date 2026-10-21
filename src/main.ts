@@ -12,6 +12,7 @@ import {
     loadPdfJs,
     normalizePath,
     type SettingDefinitionItem,
+    type SettingGroupItem,
 } from "obsidian";
 import { FloatingManager, type SelectionSnapshot } from "./ui/FloatingManager";
 import { SelectionLogic } from "./core/SelectionLogic";
@@ -37,12 +38,12 @@ import {
     HIGHLIGHT_COLORS,
     isHighlightColor,
     nearestHighlightColor,
-    stripHighlightMarkers,
     wrapHighlight,
     type HighlightColor,
 } from "./utils/colors";
-import { getSelectedOccurrence, type SelectionHint } from "./utils/blockOccurrence";
+import { getSelectedOccurrence, readBlockTextAndCaret, type SelectionHint } from "./utils/blockOccurrence";
 import { kindForTag, type BlockKind } from "./utils/sourceBlocks";
+import { editHighlightRange } from "./utils/preciseHighlight";
 import { BulkRecolorModal } from "./modals/BulkRecolorModal";
 
 export interface SemanticColor {
@@ -155,6 +156,7 @@ interface LocatedRange {
     file: TFile;
     start: number;
     end: number;
+    raw: string;
 }
 
 interface SelectionRequest {
@@ -251,12 +253,12 @@ export default class ReadingHighlighterPlugin extends Plugin {
     registerCommands() {
         this.addCommand({
             id: "highlight-selection-reading",
-            name: "Highlight selection (reading view)",
+            name: "Toggle highlight selection (reading view)",
             checkCallback: (checking) => {
                 const view = this.getActiveReadingView();
                 if (!view) return false;
                 if (checking) return true;
-                void this.highlightSelection(view);
+                void this.highlightSelection(view, null, true);
                 return true;
             },
         });
@@ -461,12 +463,12 @@ export default class ReadingHighlighterPlugin extends Plugin {
         HIGHLIGHT_COLORS.forEach((color, i) => {
             this.addCommand({
                 id: `apply-color-${i + 1}`,
-                name: `Apply ${COLOR_LABELS[color].toLowerCase()} highlight`,
+                name: `Toggle ${COLOR_LABELS[color].toLowerCase()} highlight`,
                 checkCallback: (checking) => {
                     const view = this.getActiveReadingView();
                     if (!view) return false;
                     if (checking) return true;
-                    void this.applyColorByIndex(view, i);
+                    void this.applyColorByIndex(view, i, null, true);
                     return true;
                 },
             });
@@ -569,7 +571,9 @@ export default class ReadingHighlighterPlugin extends Plugin {
             const text = this.getElementText(element);
             if (!text) return false;
             try {
-                return range.intersectsNode(element);
+                return (
+                    range.intersectsNode(element) && !!this.intersectRangeWithBlock(range, element)?.toString().trim()
+                );
             } catch {
                 return false;
             }
@@ -589,7 +593,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
     }
 
     getElementText(element: HTMLElement) {
-        return (element?.innerText || element?.textContent || "").replace(/\s+/g, " ").trim();
+        return readBlockTextAndCaret(element, { startContainer: element, startOffset: 0 })?.text ?? "";
     }
 
     buildSelectionRequest(view: MarkdownView, selectionSnapshot: SelectionSnapshot | null) {
@@ -600,14 +604,19 @@ export default class ReadingHighlighterPlugin extends Plugin {
             return null;
         }
         const contextElement = selectionContext?.element || null;
+        const hint = this.getWithinBlockHint(contextElement, selectionSnapshot, snippet);
+        if (!hint) {
+            new Notice("The selected element has no reliable text position. The note was not changed.");
+            return null;
+        }
         return {
             snippet,
             contextElement,
             blocks: selectionContext?.blocks || [],
             range: this.getSelectionRange(selectionSnapshot),
             contextText: contextElement ? this.getElementText(contextElement) : null,
-            occurrenceIndex: this.getSelectionOccurrence(view, contextElement),
-            withinBlock: this.getWithinBlockHint(contextElement, selectionSnapshot, snippet),
+            occurrenceIndex: this.getSelectionOccurrence(view, contextElement, hint),
+            withinBlock: hint,
             contextKind: kindForTag(contextElement?.tagName),
         };
     }
@@ -632,24 +641,14 @@ export default class ReadingHighlighterPlugin extends Plugin {
         return getSelectedOccurrence(contextElement, range, snippet);
     }
 
-    getSelectionOccurrence(view: MarkdownView, contextElement: HTMLElement | null) {
+    getSelectionOccurrence(view: MarkdownView, contextElement: HTMLElement | null, hint?: SelectionHint | null) {
         if (!contextElement) return 0;
-        const contextText = contextElement.innerText.trim();
-        const tagName = contextElement.tagName.toLowerCase();
-        const allElements = view.contentEl.querySelectorAll(tagName);
-        let count = 0;
-        let foundIndex = 0;
-        for (let i = 0; i < allElements.length; i++) {
-            const el = allElements[i] as HTMLElement;
-            if (el.innerText.trim() === contextText) {
-                if (el === contextElement) {
-                    foundIndex = count;
-                    break;
-                }
-                count++;
-            }
-        }
-        return foundIndex;
+        const contextText = this.getElementText(contextElement);
+        const matching = [...view.contentEl.querySelectorAll<HTMLElement>(contextElement.tagName.toLowerCase())].filter(
+            (element) => this.getElementText(element) === contextText
+        );
+        if (hint) hint.blockTotal = matching.length;
+        return matching.indexOf(contextElement);
     }
 
     async saveUndoState(file: TFile) {
@@ -696,7 +695,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
      */
     intersectRangeWithBlock(range: Range, block: HTMLElement): Range | null {
         try {
-            const blockRange = activeDocument.createRange();
+            const blockRange = block.ownerDocument.createRange();
             blockRange.selectNodeContents(block);
             if (range.compareBoundaryPoints(Range.START_TO_START, blockRange) > 0) {
                 blockRange.setStart(range.startContainer, range.startOffset);
@@ -718,13 +717,15 @@ export default class ReadingHighlighterPlugin extends Plugin {
         if (!blockRange) return null;
         const snippet = blockRange.toString();
         if (!snippet.trim()) return null;
+        const hint = getSelectedOccurrence(block, blockRange, snippet);
+        if (!hint) return null;
         return this.logic.locateSelection(
             view.file,
             view,
             snippet,
             this.getElementText(block),
-            this.getSelectionOccurrence(view, block),
-            getSelectedOccurrence(block, blockRange, snippet),
+            this.getSelectionOccurrence(view, block, hint),
+            hint,
             kindForTag(block.tagName)
         );
     }
@@ -748,14 +749,9 @@ export default class ReadingHighlighterPlugin extends Plugin {
         if (!request.range || !view.file) return false;
         const blocks = request.blocks;
 
-        let head: LocatedRange | null = null;
-        for (let i = 0; i < blocks.length && !head; i++) {
-            head = await this.locateBlockPortion(view, request.range, blocks[i]);
-        }
-        let tail: LocatedRange | null = null;
-        for (let i = blocks.length - 1; i >= 0 && !tail; i--) {
-            tail = await this.locateBlockPortion(view, request.range, blocks[i]);
-        }
+        const head = await this.locateBlockPortion(view, request.range, blocks[0]);
+        if (!head) return false;
+        const tail = await this.locateBlockPortion(view, request.range, blocks[blocks.length - 1]);
         if (!head || !tail || head.file.path !== tail.file.path) return false;
 
         const start = Math.min(head.start, tail.start);
@@ -763,11 +759,14 @@ export default class ReadingHighlighterPlugin extends Plugin {
         if (end <= start) return false;
 
         await this.saveUndoState(head.file);
-        await this.applyMarkdownModification(head.file, "", start, end, mode, payload);
-        return true;
+        if (head.raw !== tail.raw) return false;
+        const embeds = this.app.metadataCache.getFileCache(head.file)?.embeds ?? [];
+        if (embeds.some((embed) => embed.position.start.offset < end && embed.position.end.offset > start))
+            return false;
+        return this.applyMarkdownModification(head.file, head.raw, start, end, mode, payload);
     }
 
-    async highlightSelection(view: MarkdownView, selectionSnapshot?: SelectionSnapshot | null) {
+    async highlightSelection(view: MarkdownView, selectionSnapshot?: SelectionSnapshot | null, toggle = false) {
         const sel = window.getSelection();
         const request = this.buildSelectionRequest(view, selectionSnapshot);
         if (!request) {
@@ -776,7 +775,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
         }
         const scrollPos = getScroll(view);
 
-        const mode = "highlight";
+        const mode = toggle ? "toggle-highlight" : "highlight";
         const payload = "";
 
         // A selection spanning several blocks is handled one block at a time.
@@ -815,7 +814,8 @@ export default class ReadingHighlighterPlugin extends Plugin {
         const targetFile = result.file;
         await this.saveUndoState(targetFile);
 
-        await this.applyMarkdownModification(targetFile, "", result.start, result.end, mode, payload);
+        if (!(await this.applyMarkdownModification(targetFile, result.raw, result.start, result.end, mode, payload)))
+            return;
         this.restoreScroll(view, scrollPos);
         sel?.removeAllRanges();
 
@@ -825,10 +825,15 @@ export default class ReadingHighlighterPlugin extends Plugin {
         new Notice("Highlighted!");
     }
 
-    async applyColorByIndex(view: MarkdownView, index: number, selectionSnapshot?: SelectionSnapshot | null) {
+    async applyColorByIndex(
+        view: MarkdownView,
+        index: number,
+        selectionSnapshot?: SelectionSnapshot | null,
+        toggle = false
+    ) {
         if (index < 0 || index >= this.settings.semanticColors.length) return;
         const palette = this.settings.semanticColors[index];
-        await this.applyColorHighlight(view, palette.color, "", selectionSnapshot);
+        await this.applyColorHighlight(view, palette.color, "", selectionSnapshot, toggle);
     }
 
     async savePdfHighlight(
@@ -949,7 +954,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
                 if (i % 10 === 0) notice.setMessage(`Extracting text... Page ${i}/${pdf.numPages}`);
             }
 
-            const dummySnapshot = { text: fullText };
+            const dummySnapshot = { text: fullText, range: null };
             await this.savePdfHighlight(view, dummySnapshot, "action", "highlightSelection");
             notice.hide();
             new Notice(`Successfully extracted ${pdf.numPages} pages.`);
@@ -1005,7 +1010,17 @@ export default class ReadingHighlighterPlugin extends Plugin {
                 this.addRecentTag(tag);
             }
 
-            await this.applyMarkdownModification(targetFile, "", newResult.start, newResult.end, "tag", tag);
+            if (
+                !(await this.applyMarkdownModification(
+                    targetFile,
+                    newResult.raw,
+                    newResult.start,
+                    newResult.end,
+                    "tag",
+                    tag
+                ))
+            )
+                return;
             this.restoreScroll(view, scrollPos);
             window.getSelection()?.removeAllRanges();
         }).open();
@@ -1101,6 +1116,15 @@ export default class ReadingHighlighterPlugin extends Plugin {
             return;
         }
         const scrollPos = getScroll(view);
+        if (request.blocks.length > 1) {
+            if (!(await this.highlightSpanningBlocks(view, request, "remove", ""))) {
+                this.handleSelectionFailure(view, request, "removeHighlightSelection");
+                return;
+            }
+            this.restoreScroll(view, scrollPos);
+            sel?.removeAllRanges();
+            return;
+        }
 
         const result = await this.logic.locateSelection(
             view.file,
@@ -1119,7 +1143,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
 
         const targetFile = result.file;
         await this.saveUndoState(targetFile);
-        await this.applyMarkdownModification(targetFile, "", result.start, result.end, "remove");
+        if (!(await this.applyMarkdownModification(targetFile, result.raw, result.start, result.end, "remove"))) return;
         new Notice("Highlighting removed.");
         this.restoreScroll(view, scrollPos);
         sel?.removeAllRanges();
@@ -1280,12 +1304,22 @@ export default class ReadingHighlighterPlugin extends Plugin {
         view: MarkdownView,
         color: HighlightColor,
         autoTag = "",
-        selectionSnapshot?: SelectionSnapshot | null
+        selectionSnapshot?: SelectionSnapshot | null,
+        toggle = false
     ) {
         const sel = window.getSelection();
         const request = this.buildSelectionRequest(view, selectionSnapshot);
         if (!request) return;
         const scrollPos = getScroll(view);
+        if (request.blocks.length > 1) {
+            if (!(await this.highlightSpanningBlocks(view, request, toggle ? "toggle-color" : "color", color))) {
+                this.handleSelectionFailure(view, request, "applyColorHighlight", color);
+                return;
+            }
+            this.restoreScroll(view, scrollPos);
+            sel?.removeAllRanges();
+            return;
+        }
 
         const result = await this.logic.locateSelection(
             view.file,
@@ -1303,7 +1337,18 @@ export default class ReadingHighlighterPlugin extends Plugin {
 
         const targetFile = result.file;
         await this.saveUndoState(targetFile);
-        await this.applyMarkdownModification(targetFile, result.raw, result.start, result.end, "color", color, autoTag);
+        if (
+            !(await this.applyMarkdownModification(
+                targetFile,
+                result.raw,
+                result.start,
+                result.end,
+                toggle ? "toggle-color" : "color",
+                color,
+                autoTag
+            ))
+        )
+            return;
         this.restoreScroll(view, scrollPos);
         sel?.removeAllRanges();
         new Notice("Highlighted!");
@@ -1520,92 +1565,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
         return this.needsYamlQuotes(normalized) ? `"${normalized.replace(/"/g, '\\"')}"` : normalized;
     }
 
-    /** The full line of `raw` containing `offset`. */
-    lineContaining(raw: string, offset: number): string {
-        return raw.substring(this.getLineStart(raw, offset), this.getLineEnd(raw, offset));
-    }
-
-    /**
-     * Cell ranges of a table row, split on unescaped pipes only.
-     *
-     * `\|` is an escaped pipe: it is content, not a column boundary. Splitting
-     * on it tears wiki links (`[[Note\|Alias]]`) and code spans (`` `a \| b` ``)
-     * in half and writes a marker into the middle of them.
-     */
-    splitTableCells(line: string): { start: number; end: number }[] {
-        const cells: { start: number; end: number }[] = [];
-        let cursor = 0;
-        for (let i = 0; i < line.length; i++) {
-            if (line[i] === "\\") {
-                i++;
-                continue;
-            }
-            if (line[i] === "|") {
-                cells.push({ start: cursor, end: i });
-                cursor = i + 1;
-            }
-        }
-        cells.push({ start: cursor, end: line.length });
-        return cells;
-    }
-
-    /**
-     * Rewrite one table row, wrapping only the cells the selection covers.
-     *
-     * Highlighting a row cannot be done by wrapping the selected span: a `==`
-     * pair spanning a `|` swallows the column boundary and the table stops
-     * rendering as a table. Each covered cell gets its own pair instead.
-     */
-    applyToTableRow(
-        line: string,
-        lineStart: number,
-        selectionStart: number,
-        selectionEnd: number,
-        mode: string,
-        color: HighlightColor | null
-    ): string {
-        const cells = this.splitTableCells(line);
-        const pieces: string[] = [];
-
-        cells.forEach((cell, index) => {
-            const text = line.substring(cell.start, cell.end);
-            const stripped = stripHighlightMarkers(text.replace(/<mark[^>]*>/g, "").replace(/<\/mark>/g, ""));
-            const trimmed = stripped.trim();
-
-            // The fragments outside the outer pipes are not cells.
-            const isEdge = index === 0 || index === cells.length - 1;
-            // Coverage is measured against the cell's *content*, not its padding.
-            // A match can run a little past a cell boundary — the flexible
-            // matcher treats spaces and `|` as skippable — and counting the
-            // padding would drag the neighbouring cell in with it.
-            let contentStart = cell.start;
-            let contentEnd = cell.end;
-            while (contentStart < contentEnd && /\s/.test(line[contentStart])) contentStart++;
-            while (contentEnd > contentStart && /\s/.test(line[contentEnd - 1])) contentEnd--;
-            const covered = lineStart + contentEnd > selectionStart && lineStart + contentStart < selectionEnd;
-
-            if (isEdge || !trimmed || !covered || mode === "remove") {
-                pieces.push(mode === "remove" ? stripped : covered && !isEdge ? stripped : text);
-                return;
-            }
-
-            pieces.push(wrapHighlight(stripped, color));
-        });
-
-        return pieces.join("|");
-    }
-
-    isTableAlignmentRow(line: string) {
-        return /^\s*\|(\s*:?-+:?\s*\|)+\s*$/.test(line);
-    }
-
-    isTableDataRow(line: string) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("|")) return false;
-        if (this.isTableAlignmentRow(line)) return false;
-        return (trimmed.match(/\|/g) || []).length >= 2;
-    }
-
     async applyMarkdownModification(
         file: TFile,
         raw: string,
@@ -1618,98 +1577,13 @@ export default class ReadingHighlighterPlugin extends Plugin {
         if (!raw) {
             raw = await this.app.vault.read(file);
         }
-        let expandedStart = start;
-        let expandedEnd = end;
-        let bodyStart = 0;
-        if (raw.startsWith("---")) {
-            const secondDash = raw.indexOf("---", 3);
-            if (secondDash !== -1) {
-                bodyStart = secondDash + 3;
-            }
-        }
-        let expanded = true;
-        while (expanded) {
-            expanded = false;
-            const preceding = raw.substring(0, expandedStart);
-            const matchBack = preceding.match(/(<mark[^>]*>|\*\*|==|~~|\*|_|\[\[|\[\^[^\]]+\]:?\s?|[([{"'«“‘‹])$/);
-            if (matchBack && expandedStart > bodyStart) {
-                const newStart = expandedStart - matchBack[0].length;
-                if (newStart >= bodyStart) {
-                    expandedStart = newStart;
-                    expanded = true;
-                }
-            }
-            const following = raw.substring(expandedEnd);
-            // Expanded to include balanced punctuation, quotes (including « »), and footnotes
-            const matchForward = following.match(
-                /^(<\/mark>|\*\*|==|~~|\*|_|\]\]|\]\([^)]+\)|\[\^[^\]]+\]|[.?!,;:]["']?|[)\]}"'»”’›.?!,;:](\s|$)?)/
-            );
-            if (matchForward) {
-                expandedEnd += matchForward[0].length;
-                expanded = true;
-            }
-        }
-        // Merge with any highlight the selection overlaps.
-        //
-        // Extending a highlight — selecting from inside it out past its end —
-        // otherwise consumes the existing closing marker (the wrap step strips
-        // every `==` inside the selected span) and leaves the original opening
-        // marker unpaired, so one highlight becomes two broken fragments. Widen
-        // the range to the union of the selection and every highlight it touches;
-        // the interior markers are then stripped as usual and a single pair is
-        // written around the whole span.
-        // The first highlight merged in lends its colour, so extending or
-        // tagging a coloured highlight keeps it coloured.
-        let mergedColor: HighlightColor | null = null;
-        let mergedAny = false;
-        if (mode === "highlight" || mode === "color" || mode === "tag" || mode === "remove") {
-            for (const existing of parseHighlights(raw).highlights) {
-                const overlaps = existing.openTagStart < expandedEnd && existing.closeTagEnd > expandedStart;
-                if (!overlaps) continue;
-                if (!mergedAny) mergedColor = existing.color;
-                mergedAny = true;
-                expandedStart = Math.min(expandedStart, existing.openTagStart);
-                expandedEnd = Math.max(expandedEnd, existing.closeTagEnd);
-            }
-        }
-        // A colour button sets the colour; the plain button and tagging keep
-        // what is there, or fall back to the default colour.
-        const color: HighlightColor | null =
-            mode === "color" && isHighlightColor(payload)
+        const touched = parseHighlights(raw).highlights.find((h) => h.innerStart < end && h.innerEnd > start);
+        const color =
+            (mode === "color" || mode === "toggle-color") && isHighlightColor(payload)
                 ? payload
-                : mergedAny
-                  ? mergedColor
+                : touched
+                  ? touched.color
                   : this.settings.defaultHighlightColor || null;
-
-        const initiallySelectedText = raw.substring(expandedStart, expandedEnd);
-        if (/\r?\n/.test(initiallySelectedText)) {
-            expandedStart = this.getLineStart(raw, expandedStart);
-            expandedEnd = this.getLineEnd(raw, expandedEnd);
-        }
-        // A table row must be rewritten as whole cells, so the range is widened
-        // to full lines — but the caller's own range is kept, because only the
-        // cells it actually covers should be highlighted.
-        const selectionStart = expandedStart;
-        const selectionEnd = expandedEnd;
-        if (
-            this.isTableDataRow(this.lineContaining(raw, expandedStart)) ||
-            this.isTableDataRow(this.lineContaining(raw, expandedEnd))
-        ) {
-            expandedStart = this.getLineStart(raw, expandedStart);
-            expandedEnd = this.getLineEnd(raw, expandedEnd);
-        }
-
-        const selectedText = raw.substring(expandedStart, expandedEnd);
-        const newline = raw.includes("\r\n") ? "\r\n" : "\n";
-        const lines = selectedText.split(/\r?\n/);
-        // Absolute offset of each line, so a table row can work out which of its
-        // cells the selection covers.
-        const lineOffsets: number[] = [];
-        let runningOffset = expandedStart;
-        for (const line of lines) {
-            lineOffsets.push(runningOffset);
-            runningOffset += line.length + newline.length;
-        }
         let fullTag = "";
         const sanitizeTag = (t: string) => t.trim().replace(/^#/, "").replace(/\s+/g, "_");
         if (mode === "tag" && payload) {
@@ -1725,7 +1599,10 @@ export default class ReadingHighlighterPlugin extends Plugin {
             } else {
                 fullTag = cleanPayload;
             }
-        } else if ((mode === "highlight" || mode === "color") && this.settings.defaultTagPrefix) {
+        } else if (
+            (mode === "highlight" || mode === "color" || mode.startsWith("toggle-")) &&
+            this.settings.defaultTagPrefix
+        ) {
             const autoTagSetting = sanitizeTag(this.settings.defaultTagPrefix);
             if (autoTagSetting) {
                 fullTag = `#${autoTagSetting}`;
@@ -1735,47 +1612,23 @@ export default class ReadingHighlighterPlugin extends Plugin {
             const cleanAutoTag = sanitizeTag(autoTag);
             fullTag = fullTag ? `${fullTag} #${cleanAutoTag}` : `#${cleanAutoTag}`;
         }
-        const processedLines = lines.map((line, lineIndex) => {
-            let cleanLine = line.replace(/<mark[^>]*>/g, "").replace(/<\/mark>/g, "");
-            if (this.isTableAlignmentRow(line)) return line;
-            if (this.isTableDataRow(line)) {
-                return this.applyToTableRow(line, lineOffsets[lineIndex], selectionStart, selectionEnd, mode, color);
-            }
-            if (mode === "highlight" || mode === "color" || mode === "tag" || mode === "remove") {
-                cleanLine = stripHighlightMarkers(cleanLine);
-            } else if (mode === "bold") {
-                cleanLine = cleanLine.split("**").join("");
-            } else if (mode === "italic") {
-                cleanLine = cleanLine.split("*").join("");
-            }
-            if (mode === "remove") return cleanLine;
-            const { indent, prefix, content } = this.splitMarkdownLine(cleanLine);
-            if (!content.trim()) return line;
-
-            // Extract leading and trailing whitespace to preserve it outside the highlight
-            const leadWS = content.match(/^(\s*)/)?.[1] || "";
-            const trailWS = content.match(/(\s*)$/)?.[1] || "";
-            const actualContent = content.substring(leadWS.length, content.length - trailWS.length);
-
-            if (!actualContent) return line;
-
-            const tagStr = fullTag ? `${fullTag} ` : "";
-            let wrappedContent = actualContent;
-
-            if (mode === "highlight" || mode === "tag" || mode === "color") {
-                wrappedContent = wrapHighlight(actualContent, color);
-            } else if (mode === "bold") {
-                wrappedContent = `**${actualContent}**`;
-            } else if (mode === "italic") {
-                wrappedContent = `*${actualContent}*`;
-            }
-
-            return `${indent}${prefix}${leadWS}${tagStr}${wrappedContent}${trailWS}`;
-        });
-        const replaceBlock = processedLines.join(newline);
-        const newContent = raw.substring(0, expandedStart) + replaceBlock + raw.substring(expandedEnd);
-        await this.app.vault.modify(file, newContent);
-        if (mode !== "remove" && this.settings.enableFrontmatterTag && this.settings.frontmatterTag) {
+        let newContent: string;
+        try {
+            newContent = editHighlightRange(raw, start, end, mode, color, fullTag);
+        } catch (error) {
+            new Notice(error instanceof Error ? error.message : "The selection cannot be highlighted safely.");
+            return false;
+        }
+        const finalContent = await this.app.vault.process(file, (current) => (current === raw ? newContent : current));
+        if (finalContent !== newContent) {
+            new Notice("The note changed while highlighting. Select the text again; those edits were preserved.");
+            return false;
+        }
+        const removed =
+            mode === "remove" ||
+            (mode.startsWith("toggle-") &&
+                parseHighlights(newContent).highlights.length < parseHighlights(raw).highlights.length);
+        if (!removed && this.settings.enableFrontmatterTag && this.settings.frontmatterTag) {
             const targetTag = this.formatFrontmatterTag(this.settings.frontmatterTag);
             if (targetTag) {
                 try {
@@ -1806,13 +1659,14 @@ export default class ReadingHighlighterPlugin extends Plugin {
                         }
                     });
                 } catch (e) {
-                    console.error("Reader Highlighter Tags: Failed to inject frontmatter tag.", e);
+                    console.error("Superier Highlighter: Failed to inject frontmatter tag.", e);
                 }
             }
         }
         // Read back rather than reuse newContent: the frontmatter step above
         // may have written to the note again.
         await this.recordUndoResult(file);
+        return true;
     }
 
     restoreScroll(view: MarkdownView, pos: ScrollPosition) {
@@ -1827,6 +1681,10 @@ export default class ReadingHighlighterPlugin extends Plugin {
         actionType: string,
         payload: string | null = null
     ) {
+        if (request.withinBlock?.blockText !== undefined || request.range) {
+            new Notice("The selection could not be matched exactly. Select the text again; the note was not changed.");
+            return;
+        }
         const report = this.logic.lastFailureReport;
         if (!report) {
             new Notice("Selection failed, but no diagnostic report was generated.");
@@ -1870,26 +1728,9 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
         super(app, plugin);
         this.plugin = plugin;
     }
-    // Render a section heading without raw <h2>/<h3> tags. Styled via styles.css
-    // using the theme's own heading variables so it matches the previous look.
-    sectionHeading(text: string, variant: "h2" | "h3" | "h4") {
-        return this.containerEl.createDiv({
-            text,
-            cls: `rht-settings-heading rht-settings-heading--${variant}`,
-        });
-    }
-    /**
-     * Declarative settings, so every option is reachable from Obsidian's
-     * settings search on 1.13 and later.
-     *
-     * `display()` below is kept for older versions: Obsidian only calls it when
-     * this returns an empty array, so the two never both run. Anything added
-     * here must also be added there, or it disappears for one audience or the
-     * other.
-     */
     getSettingDefinitions(): SettingDefinitionItem[] {
         const s = this.plugin.settings;
-        const colourMeanings: SettingDefinitionItem[] = s.semanticColors.map((item, index) => ({
+        const colourMeanings: SettingGroupItem[] = s.semanticColors.map((item, index) => ({
             name: COLOR_LABELS[item.color],
             aliases: item.meaning ? [item.meaning] : [],
             control: { type: "text", key: `semanticColors.${index}.meaning`, placeholder: "Meaning (e.g. Disagree)" },
@@ -2128,265 +1969,7 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
         this.refreshDefinitions();
     }
 
-    /** Re-read the definitions, on versions that have the declarative API. */
-    refreshDefinitions(): void {
-        const tab = this as unknown as { update?: () => void };
-        if (typeof tab.update === "function") tab.update();
-        else this.render();
-    }
-
-    display() {
-        this.render();
-    }
-
-    render() {
-        const { containerEl } = this;
-        containerEl.empty();
-        this.sectionHeading("Reader Highlighter Tags Settings", "h2");
-        new Setting(containerEl)
-            .setName("Toolbar position")
-            .setDesc("Choose where the floating toolbar should appear.")
-            .addDropdown((dropdown) =>
-                dropdown
-                    .addOption("text", "Next to text")
-                    .addOption("top", "Fixed at top center")
-                    .addOption("bottom", "Fixed at bottom center")
-                    .addOption("left", "Fixed left side")
-                    .addOption("right", "Fixed right side (default)")
-                    .setValue(this.plugin.settings.toolbarPosition)
-                    .onChange(async (value) => {
-                        this.plugin.settings.toolbarPosition = value;
-                        await this.plugin.saveSettings();
-                    })
-            );
-        this.sectionHeading("Highlighting", "h3");
-        new Setting(containerEl)
-            .setName("Highlight colour")
-            .setDesc(HIGHLIGHT_COLOUR_DESC)
-            .addDropdown((dropdown) => {
-                dropdown.addOption("", "Theme default");
-                for (const color of HIGHLIGHT_COLORS) dropdown.addOption(color, COLOR_LABELS[color]);
-                dropdown.setValue(this.plugin.settings.defaultHighlightColor).onChange(async (value) => {
-                    this.plugin.settings.defaultHighlightColor = isHighlightColor(value) ? value : "";
-                    await this.plugin.saveSettings();
-                });
-            });
-        new Setting(containerEl)
-            .setName("Show colour palette")
-            .setDesc(PALETTE_DESC)
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableColorPalette).onChange(async (value) => {
-                    this.plugin.settings.enableColorPalette = value;
-                    await this.plugin.saveSettings();
-                    this.render();
-                })
-            );
-        if (this.plugin.settings.enableColorPalette) {
-            new Setting(containerEl)
-                .setName("Only show colours with a meaning")
-                .setDesc(
-                    "Hide palette colours that have no meaning assigned below, so the toolbar shows only the ones you actually use. Turn this off to show all of them."
-                )
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.showOnlyAssignedColors).onChange(async (value) => {
-                        this.plugin.settings.showOnlyAssignedColors = value;
-                        await this.plugin.saveSettings();
-                    })
-                );
-
-            this.sectionHeading("Semantic colour meanings", "h4");
-            this.plugin.settings.semanticColors.forEach((item, index) => {
-                const setting = new Setting(containerEl).setName(COLOR_LABELS[item.color]);
-                setting.controlEl.createSpan({
-                    cls: "highlight-swatch reading-highlighter-swatch rht-color-swatch",
-                    attr: { "data-highlight": item.color },
-                });
-                setting.addText((text) =>
-                    text
-                        .setPlaceholder("Meaning (e.g. Disagree)")
-                        .setValue(item.meaning)
-                        .onChange(async (value) => {
-                            this.plugin.settings.semanticColors[index].meaning = value;
-                            await this.plugin.saveSettings();
-                        })
-                );
-            });
-        }
-        this.sectionHeading("Tags", "h3");
-        new Setting(containerEl)
-            .setName("Default tag prefix")
-            .setDesc("Automatically add this tag to every highlight (e.g., 'book').")
-            .addText((text) =>
-                text
-                    .setPlaceholder("Book")
-                    .setValue(this.plugin.settings.defaultTagPrefix)
-                    .onChange(async (value) => {
-                        this.plugin.settings.defaultTagPrefix = value.replace(/\s+/g, "_").replace(/^#/, "");
-                        await this.plugin.saveSettings();
-                    })
-            );
-        new Setting(containerEl)
-            .setName("Smart tag suggestions")
-            .setDesc("Suggest tags based on recent usage, folder, and frontmatter.")
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableSmartTagSuggestions).onChange(async (value) => {
-                    this.plugin.settings.enableSmartTagSuggestions = value;
-                    await this.plugin.saveSettings();
-                })
-            );
-        new Setting(containerEl)
-            .setName("Enable smart paragraph selection")
-            .setDesc("Snap selections inside a paragraph, list item, heading, or blockquote to the entire block.")
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableSmartParagraphSelection).onChange(async (value) => {
-                    this.plugin.settings.enableSmartParagraphSelection = value;
-                    await this.plugin.saveSettings();
-                })
-            );
-        this.sectionHeading("Quote Template", "h3");
-        new Setting(containerEl)
-            .setName("Quote format")
-            .setDesc(
-                "Template for copying text as quote. Variables: {{text}}, {{file}}, {{path}}, {{date}}, {{time}}, {{domain}}, {{author}}"
-            )
-            .addTextArea((text) =>
-                text.setValue(this.plugin.settings.quoteTemplate).onChange(async (value) => {
-                    this.plugin.settings.quoteTemplate = value;
-                    await this.plugin.saveSettings();
-                })
-            );
-        this.sectionHeading("Annotations", "h3");
-        new Setting(containerEl)
-            .setName("Enable annotations")
-            .setDesc("Add comments to selections as footnotes.")
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableAnnotations).onChange(async (value) => {
-                    this.plugin.settings.enableAnnotations = value;
-                    await this.plugin.saveSettings();
-                })
-            );
-        new Setting(containerEl)
-            .setName("Show annotation button")
-            .setDesc("Show the annotation button in the toolbar.")
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.showAnnotationButton).onChange(async (value) => {
-                    this.plugin.settings.showAnnotationButton = value;
-                    await this.plugin.saveSettings();
-                })
-            );
-        this.sectionHeading("Reading Progress", "h3");
-        new Setting(containerEl)
-            .setName("Track reading progress")
-            .setDesc("Remember scroll position when leaving a file.")
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableReadingProgress).onChange(async (value) => {
-                    this.plugin.settings.enableReadingProgress = value;
-                    await this.plugin.saveSettings();
-                })
-            );
-        new Setting(containerEl)
-            .setName("Clear reading positions")
-            .setDesc(`Currently tracking ${Object.keys(this.plugin.settings.readingPositions).length} file(s).`)
-            .addButton((button) =>
-                button.setButtonText("Clear all").onClick(async () => {
-                    this.plugin.settings.readingPositions = {};
-                    await this.plugin.saveSettings();
-                    new Notice("Reading positions cleared.");
-                    this.render();
-                })
-            );
-        this.sectionHeading("Toolbar Buttons", "h3");
-        new Setting(containerEl).setName("Show tag button").addToggle((toggle) =>
-            toggle.setValue(this.plugin.settings.showTagButton).onChange(async (value) => {
-                this.plugin.settings.showTagButton = value;
-                await this.plugin.saveSettings();
-            })
-        );
-        new Setting(containerEl).setName("Show quote button").addToggle((toggle) =>
-            toggle.setValue(this.plugin.settings.showQuoteButton).onChange(async (value) => {
-                this.plugin.settings.showQuoteButton = value;
-                await this.plugin.saveSettings();
-            })
-        );
-        new Setting(containerEl).setName("Show remove button").addToggle((toggle) =>
-            toggle.setValue(this.plugin.settings.showRemoveButton).onChange(async (value) => {
-                this.plugin.settings.showRemoveButton = value;
-                await this.plugin.saveSettings();
-            })
-        );
-        this.sectionHeading("Mobile & UX", "h3");
-        new Setting(containerEl)
-            .setName("Haptic feedback")
-            .setDesc("Vibrate slightly on success (mobile only).")
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableHaptics).onChange(async (value) => {
-                    this.plugin.settings.enableHaptics = value;
-                    await this.plugin.saveSettings();
-                })
-            );
-        new Setting(containerEl)
-            .setName("Show button tooltips")
-            .setDesc("Show tooltips when hovering over toolbar buttons.")
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.showTooltips).onChange(async (value) => {
-                    this.plugin.settings.showTooltips = value;
-                    await this.plugin.saveSettings();
-                })
-            );
-        this.sectionHeading("Frontmatter Integration", "h3");
-        let tagSetting: Setting;
-        new Setting(containerEl)
-            .setName("Auto-tag highlight in frontmatter")
-            .setDesc("Automatically inject a specific tag into the note's frontmatter whenever you highlight text.")
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableFrontmatterTag).onChange(async (value) => {
-                    this.plugin.settings.enableFrontmatterTag = value;
-                    await this.plugin.saveSettings();
-                    if (tagSetting !== undefined) {
-                        tagSetting.settingEl.setCssStyles({ display: value ? "" : "none" });
-                    }
-                })
-            );
-        tagSetting = new Setting(containerEl)
-            .setName("Frontmatter highlight tag")
-            .setDesc("The tag to add (e.g. 'resaltados'). Do not include the # symbol.")
-            .addText((text) =>
-                text
-                    .setPlaceholder("Resaltados")
-                    .setValue(this.plugin.settings.frontmatterTag)
-                    .onChange(async (value) => {
-                        this.plugin.settings.frontmatterTag = value.replace(/^#/, "");
-                        await this.plugin.saveSettings();
-                    })
-            );
-        tagSetting.settingEl.setCssStyles({ display: this.plugin.settings.enableFrontmatterTag ? "" : "none" });
-        this.sectionHeading("Learned Normalization Rules", "h3");
-        if (this.plugin.settings.learnedNormRules.length === 0) {
-            containerEl.createEl("p", { text: "No rules learned yet.", cls: "setting-item-description" });
-        } else {
-            this.plugin.settings.learnedNormRules.forEach((rule, index) => {
-                new Setting(containerEl)
-                    .setName(`Rule ${index + 1}`)
-                    .setDesc(`Ignore: "${rule.stripPattern}"`)
-                    .addButton((btn) => {
-                        btn.setButtonText("Delete").onClick(async () => {
-                            this.plugin.settings.learnedNormRules.splice(index, 1);
-                            await this.plugin.saveSettings();
-                            this.render();
-                            new Notice("Rule deleted.");
-                        });
-                        btn.buttonEl.addClass("mod-warning");
-                    });
-            });
-            new Setting(containerEl).addButton((btn) => {
-                btn.setButtonText("Clear all rules").onClick(async () => {
-                    this.plugin.settings.learnedNormRules = [];
-                    await this.plugin.saveSettings();
-                    this.render();
-                    new Notice("All rules cleared.");
-                });
-                btn.buttonEl.addClass("mod-warning");
-            });
-        }
+    refreshDefinitions() {
+        this.update();
     }
 }

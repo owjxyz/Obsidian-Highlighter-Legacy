@@ -66,7 +66,7 @@ describe("a selection entirely inside an existing highlight", () => {
 describe("footnote reference inside the merged span", () => {
     const raw = "==Nació en el norte.[^4] Era del grupo.== Su nombre procedió de un comerciante.";
     const html =
-        "<p><mark>Nació en el norte.<sup>1</sup> Era del grupo.</mark> Su nombre procedió de un comerciante.</p>";
+        "<p><mark>Nació en el norte.<sup class='footnote-ref'>1</sup> Era del grupo.</mark> Su nombre procedió de un comerciante.</p>";
 
     it("keeps the footnote inside and closes after the final period", async () => {
         const ctx = await setup(raw, html);

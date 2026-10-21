@@ -73,16 +73,16 @@ describe("an existing coloured highlight", () => {
         expect(ctx.out()).toBe("Antes ==🟡del texto. Uno dos tres.== Cuatro cinco seis.");
     });
 
-    it("takes the new colour from a colour button", async () => {
+    it("takes the new colour only within the selection", async () => {
         const ctx = await setup(raw, html);
         await colour(ctx, "red", "dos");
-        expect(ctx.out()).toBe("Antes del texto. ==🔴Uno dos tres.== Cuatro cinco seis.");
+        expect(ctx.out()).toBe("Antes del texto. ==🟡Uno== ==🔴dos== ==🟡tres.== Cuatro cinco seis.");
     });
 
-    it("loses its emoji with its markers when erased", async () => {
+    it("erases only the selection and retains the neighbouring colour", async () => {
         const ctx = await setup(raw, html);
         await erase(ctx, "dos");
-        expect(ctx.out()).toBe("Antes del texto. Uno dos tres. Cuatro cinco seis.");
+        expect(ctx.out()).toBe("Antes del texto. ==🟡Uno== dos ==🟡tres.== Cuatro cinco seis.");
     });
 
     it("is left alone by a highlight elsewhere in the paragraph", async () => {

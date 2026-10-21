@@ -1,7 +1,7 @@
 {
-    "name": "reader-highlighter-tags",
-    "version": "2.0.0",
-    "description": "Highlight text in Reading View",
+    "name": "superier-highlighter",
+    "version": "0.0.1",
+    "description": "Precise, context-aware highlighting in Reading View",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",
@@ -12,17 +12,15 @@
         "lint:review": "eslint . -c eslint.review.config.mjs",
         "lint:all": "eslint . --max-warnings=0 && eslint . -c eslint.review.config.mjs --max-warnings=0",
         "format": "prettier --write \"src/**/*.{js,ts}\" \"tests/**/*.{js,ts}\" \"*.{json,md,mjs}\"",
-        "format:check": "prettier --check \"src/**/*.{js,ts}\" \"tests/**/*.{js,ts}\" \"*.{json,md,mjs}\""
+        "format:check": "prettier --check \"src/**/*.{js,ts}\" \"tests/**/*.{js,ts}\" \"*.{json,md,mjs}\"",
+        "typecheck": "tsc --noEmit --ignoreDeprecations 6.0"
     },
     "keywords": [
         "obsidian",
         "obsidian-plugin"
     ],
-    "author": "DuckTapeKiller",
+    "author": "owjxyz",
     "license": "MIT",
-    "optionalDependencies": {
-        "@esbuild/darwin-x64": "^0.28.0"
-    },
     "devDependencies": {
         "@eslint/js": "^9.39.2",
         "@eslint/json": "^0.14.0",

@@ -153,7 +153,7 @@ ${highlights.map((h, i) => `${i + 1}. ${h.text}`).join("\n\n")}
 
 ---
 
-*Exported by Reader Highlighter Tags*
+*Exported by Superier Highlighter*
 `;
 
     const exportPath = freeExportPath(app, file, "md");

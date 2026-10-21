@@ -107,7 +107,7 @@ describe("issue 4: extending an existing highlight", () => {
     const raw =
         "==Nació en el norte, en el occidente del país.[^4] Era un miembro del primer grupo, como su esposa.== Su segundo nombre procedió de un comerciante lejano.";
     const html =
-        "<p><mark>Nació en el norte, en el occidente del país.<sup>1</sup> Era un miembro del primer grupo, como su esposa.</mark> Su segundo nombre procedió de un comerciante lejano.</p>";
+        "<p><mark>Nació en el norte, en el occidente del país.<sup class='footnote-ref'>1</sup> Era un miembro del primer grupo, como su esposa.</mark> Su segundo nombre procedió de un comerciante lejano.</p>";
 
     it("merges into one highlight ending after the final period", async () => {
         const ctx = await setup(raw, html);

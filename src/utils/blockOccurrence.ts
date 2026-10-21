@@ -20,11 +20,14 @@ export interface NodeLike {
     nodeValue?: string | null;
     tagName?: string;
     childNodes?: ArrayLike<NodeLike>;
+    classList?: { contains(name: string): boolean };
 }
 
 export interface RangeLike {
     startContainer: NodeLike;
     startOffset: number;
+    endContainer?: NodeLike;
+    endOffset?: number;
 }
 
 const TEXT_NODE = 3;
@@ -95,6 +98,7 @@ export function readBlockTextAndCaret(block: NodeLike | null, range: RangeLike |
             return;
         }
         if (node.nodeType !== ELEMENT_NODE) return;
+        if (node.classList?.contains("footnote-ref")) return;
 
         const children = node.childNodes;
         if (node === range.startContainer) {
@@ -138,6 +142,11 @@ export interface SelectionHint {
     total: number;
     /** Caret offset within the block's rendered text, for approximate fallback. */
     caret: number;
+    before?: string;
+    after?: string;
+    selected?: string;
+    blockText?: string;
+    blockTotal?: number;
 }
 
 /**
@@ -189,5 +198,23 @@ export function getSelectedOccurrence(
 ): SelectionHint | null {
     const read = readBlockTextAndCaret(block, range);
     if (!read) return null;
-    return computeOccurrenceOrdinal(read.text, read.caret, snippet);
+    const tail = range?.endContainer
+        ? readBlockTextAndCaret(block, { startContainer: range.endContainer, startOffset: range.endOffset ?? 0 })
+        : null;
+    let start = read.caret;
+    let end = tail?.caret ?? start + collapseWhitespace(snippet, 0).text.length;
+    if (collapseWhitespace(snippet, 0).text === read.text) {
+        start = 0;
+        end = read.text.length;
+    }
+    const selected = read.text.slice(start, end).trim();
+    const hint = computeOccurrenceOrdinal(read.text, start, selected);
+    if (!hint) return null;
+    return {
+        ...hint,
+        before: read.text.slice(0, start).trimEnd().slice(-160),
+        after: read.text.slice(end).trimStart().slice(0, 160),
+        selected,
+        blockText: read.text,
+    };
 }

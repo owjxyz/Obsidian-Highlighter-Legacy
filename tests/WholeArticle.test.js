@@ -26,8 +26,8 @@ const raw = [
 
 const html = [
     "<h2>Biografía</h2>",
-    "<p><mark>Nació en la región del norte, en el occidente del país.<sup>1</sup> Era del grupo.</mark></p>",
-    "<p>El pueblo del norte no era favorecido por los comerciantes.<sup>2</sup> Era común entre ellos.</p>",
+    "<p><mark>Nació en la región del norte, en el occidente del país.<sup class='footnote-ref'>1</sup> Era del grupo.</mark></p>",
+    "<p>El pueblo del norte no era favorecido por los comerciantes.<sup class='footnote-ref'>2</sup> Era común entre ellos.</p>",
     "<h3>En la cultura</h3>",
     "<ul><li>La novela <em>Segunda parte</em> (1991), del autor del sur.</li>",
     "<li>La novela <em>Primera</em>... <em>las alas del viento</em> (2023), del autor regional.</li></ul>",

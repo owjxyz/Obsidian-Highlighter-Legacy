@@ -5,7 +5,7 @@ import { exportHighlightsToCanvas } from "../utils/canvas";
 import type { Highlight } from "../utils/highlights";
 import type { HighlightColor } from "../utils/colors";
 
-export const RESEARCH_VIEW = "reader-research-view";
+export const RESEARCH_VIEW = "superier-highlighter-research";
 
 type ResearchHighlight = Highlight & { file: TFile; frontmatter: Record<string, unknown> };
 

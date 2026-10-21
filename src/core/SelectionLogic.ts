@@ -2,6 +2,7 @@ import { App, TFile, MarkdownView } from "obsidian";
 import { BlockKind, SourceBlock, splitSourceBlocks, findBlockAt } from "../utils/sourceBlocks";
 import type { SelectionHint } from "../utils/blockOccurrence";
 import { colorAt } from "../utils/colors";
+import { locateAnchoredSelection } from "../utils/strictSelection";
 
 interface LearnedRule {
     stripPattern?: string;
@@ -12,6 +13,7 @@ interface Segment {
     vEnd: number;
     file: TFile;
     pOffset: number;
+    raw?: string;
 }
 
 interface Virtual {
@@ -191,7 +193,7 @@ export class SelectionLogic {
         // still try, and the per-character flexible pattern degenerates into
         // gap-matching against the whole note, which exhausts memory rather than
         // failing.
-        if (!this.normalizeComparableText(snippet)) {
+        if (withinBlock?.blockText === undefined && !this.normalizeComparableText(snippet)) {
             return null;
         }
 
@@ -212,9 +214,16 @@ export class SelectionLogic {
         }
 
         const activeFile = view.file;
-        const opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
+        const opContext: OpContext = { cache: new Map(), visited: new Set<string>() };
         const virtual = await this.resolveVirtualContent(activeFile, 0, opContext);
         const fullRaw = virtual.text;
+
+        if (withinBlock?.blockText !== undefined) {
+            const anchored = locateAnchoredSelection(fullRaw, withinBlock, occurrenceIndex, contextKind);
+            if (anchored) return this.mapVirtualToPhysical(anchored.start, anchored.end, virtual.segments);
+            this.lastFailureReport = this.classifyFailure(selectionSnippet, snippet, fullRaw, { strategies: {} });
+            return null;
+        }
 
         let firstSegmentBodyStart = 0;
         if (fullRaw.startsWith("---")) {
@@ -341,6 +350,7 @@ export class SelectionLogic {
         }
         opContext.visited.add(file.path);
         let raw = await this.app.vault.read(file);
+        const originalRaw = raw;
         let fmOffset = 0;
         if (depth > 0 && raw.startsWith("---")) {
             const originalLength = raw.length;
@@ -388,6 +398,7 @@ export class SelectionLogic {
                 vStart: segStart,
                 vEnd: virtualText.length,
                 file,
+                raw: originalRaw,
                 pOffset: lastOffset + fmOffset,
             });
 
@@ -399,7 +410,7 @@ export class SelectionLogic {
             const linkPath = pipeIdx === -1 ? linkPathWithAlias : linkPathWithAlias.slice(0, pipeIdx);
 
             const targetFile = this.app.metadataCache.getFirstLinkpathDest(linkPath, file.path);
-            if (targetFile) {
+            if (targetFile?.extension === "md") {
                 const subContext = { ...opContext, visited: new Set(opContext.visited) };
                 const subVirtual = await this.resolveVirtualContent(targetFile, depth + 1, subContext, embedFragment);
                 const embedStart = virtualText.length;
@@ -409,6 +420,7 @@ export class SelectionLogic {
                         vStart: subSeg.vStart + embedStart,
                         vEnd: subSeg.vEnd + embedStart,
                         file: subSeg.file,
+                        raw: subSeg.raw,
                         pOffset: subSeg.pOffset,
                     });
                 }
@@ -420,6 +432,7 @@ export class SelectionLogic {
                     vStart: segStart2,
                     vEnd: virtualText.length,
                     file,
+                    raw: originalRaw,
                     pOffset: adjustedStart + fmOffset,
                 });
             }
@@ -432,6 +445,7 @@ export class SelectionLogic {
             vStart: tailStart,
             vEnd: virtualText.length,
             file,
+            raw: originalRaw,
             pOffset: lastOffset + fmOffset,
         });
         const result = this.applyStructuralFilter({ text: virtualText, segments });
@@ -545,9 +559,19 @@ export class SelectionLogic {
     // Structural Filtering Engine (Noise Shield)
     // Computationally strips invisible markdown syntax while keeping offsets perfectly mapped
     applyStructuralFilter({ text, segments }: Virtual): Virtual {
+        const definedFootnotes = new Set([...text.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
+        const footnoteRefs = /\[\^[^\]]+\](?!:)/g;
         const patterns = [
+            // Images have no selectable caption; remove them before stripping link destinations.
+            /!\[[^\]]*\]\((?:[^()"]|"[^"]*"|\([^()]*\))*\)/g,
+            /!\[\[[^\]]+\]\]/g,
+            // Wiki destinations are hidden; only the alias (or unaliased name) is visible.
+            /\[\[[^\]\n|]*\\?\|/g,
+            /\[\[|\]\]/g,
+            // Remove the opening bracket of a real inline link, before its destination.
+            /\[(?=[^\]\n]*\]\((?:[^()"]|"[^"]*"|\([^()]*\))*\))/g,
             // Footnotes: [^123]
-            /\[\^[^\]]+\]/g,
+            footnoteRefs,
             // Inline footnotes: ^[note]
             /\^\[[^\]]+\]/g,
             // Comments: %% ... %% (can span multiple lines)
@@ -573,12 +597,6 @@ export class SelectionLogic {
             // start on different characters, so there is no ambiguity for the
             // engine to backtrack through.
             //
-            // NOTE: this runs before the image rule below, so `![caption](url)`
-            // is reduced to `![caption` and the image rule never fires. The
-            // caption therefore survives into the text the matcher searches.
-            // Reordering these two fixes the leak but changes every downstream
-            // offset, which cost more selections than it saved; block scoring
-            // compensates for the leak instead (see resolveCandidates).
             /\]\((?:[^()"]|"[^"]*"|\([^()]*\))*\)/g,
             // Markdown Images: ![caption](url)
             /!\[[^\]]*\]\([^)]+\)/g,
@@ -613,21 +631,20 @@ export class SelectionLogic {
                     regex.lastIndex = previousEnd;
                     matches.push({ start: match.index, end: previousEnd, length });
                 }
-            } else if (regex.source === "\\[\\^[^\\]]+\\]") {
+            } else if (regex === footnoteRefs) {
                 // Special handling for footnotes
                 while ((match = regex.exec(currentText)) !== null) {
                     const content = match[0].substring(2, match[0].length - 1);
                     // ONLY strip citations (numbers, separators, syms, NO letters)
                     // These are usually rendered as superscripts [1] or [6-1]
-                    if (!/[a-zA-Z]/.test(content)) {
+                    if (!/[a-zA-Z]/.test(content) || definedFootnotes.has(content)) {
                         matches.push({
                             start: match.index,
                             end: match.index + match[0].length,
                             length: match[0].length,
                         });
                     }
-                    // Named or inline content footnotes (containing letters) are left intact
-                    // as they are likely literal visible text in the browser.
+                    // Undefined named references remain literal visible text.
                 }
             } else {
                 while ((match = regex.exec(currentText)) !== null) {
@@ -678,14 +695,17 @@ export class SelectionLogic {
     mapVirtualToPhysical(vStart: number, vEnd: number, segments: Segment[]): PhysicalResult | null {
         const startSeg = segments.find((s) => vStart >= s.vStart && vStart < s.vEnd);
         const endSeg = segments.find((s) => vEnd > s.vStart && vEnd <= s.vEnd);
-        if (!startSeg || !endSeg) return null;
+        if (!startSeg || !endSeg || startSeg.file.path !== endSeg.file.path) return null;
+        const covered = segments.filter((s) => s.vStart < vEnd && s.vEnd > vStart);
+        if (covered.some((s, i) => s.file.path !== startSeg.file.path || (i > 0 && s.pOffset < covered[i - 1].pOffset)))
+            return null;
         const pStart = startSeg.pOffset + (vStart - startSeg.vStart);
         const pEnd = endSeg.pOffset + (vEnd - endSeg.vStart);
         return {
             file: startSeg.file,
             start: pStart,
             end: pEnd,
-            raw: "",
+            raw: startSeg.raw ?? "",
         };
     }
 

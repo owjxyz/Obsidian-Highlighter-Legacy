@@ -40,7 +40,7 @@ const THEMATIC_BREAK_RE = /^\s{0,3}(?:\*\s*\*\s*\*|-\s*-\s*-|_\s*_\s*_)[\s*\-_]*
  * Cell ranges within a table row, split on unescaped pipes. `\|` is content —
  * an escaped pipe inside a wiki link or code span — not a column boundary.
  */
-function tableCellRanges(line: string, lineStart: number): SourceBlock[] {
+export function tableCellRanges(line: string, lineStart: number): SourceBlock[] {
     const cells: SourceBlock[] = [];
     let cursor = 0;
     const push = (from: number, to: number): void => {

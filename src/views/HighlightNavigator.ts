@@ -17,7 +17,7 @@ import type { HighlightWithFile } from "../utils/canvas";
 import { HighlightEditModal } from "../modals/HighlightEditModal";
 import { BulkRecolorModal } from "../modals/BulkRecolorModal";
 
-export const HIGHLIGHT_NAVIGATOR_VIEW = "highlight-navigator";
+export const HIGHLIGHT_NAVIGATOR_VIEW = "superier-highlighter-navigator";
 
 interface NavFootnote {
     id: string;
@@ -467,7 +467,7 @@ export class HighlightNavigatorView extends ItemView {
             }
             await this.refresh(true);
         } catch (err) {
-            console.error("Reader Highlighter Tags: failed to remove highlight.", err);
+            console.error("Superier Highlighter: failed to remove highlight.", err);
             new Notice("Failed to remove highlight.");
         }
     }

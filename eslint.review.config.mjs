@@ -8,6 +8,11 @@ export default defineConfig([
     { ignores: ["main.js", "build/**", "node_modules/**"] },
     ...obsidianmd.configs.recommended,
     {
+        // Build/test configuration runs in Node and is not shipped in the plugin bundle.
+        files: ["*.mjs"],
+        rules: { "obsidianmd/no-nodejs-modules": "off" },
+    },
+    {
         languageOptions: {
             parserOptions: {
                 // tsconfig.json already includes the .mjs configs.

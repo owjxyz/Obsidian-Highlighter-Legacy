@@ -25,6 +25,13 @@ export class Plugin extends Component {
         super();
         this.app = app;
         this.manifest = manifest;
+        if (app?.vault?.read && app.vault.modify && !app.vault.process) {
+            app.vault.process = async (file, update) => {
+                const result = update(await app.vault.read(file));
+                await app.vault.modify(file, result);
+                return result;
+            };
+        }
     }
     addCommand() {}
     addRibbonIcon() {

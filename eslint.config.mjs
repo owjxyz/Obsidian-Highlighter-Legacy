@@ -21,6 +21,11 @@ export default defineConfig(
     // its own globs for TS, JS and package.json, so they are not narrowed.
     ...obsidianmd.configs.recommended,
     {
+        // Build/test configuration runs in Node and is not shipped in the plugin bundle.
+        files: ["*.mjs"],
+        rules: { "obsidianmd/no-nodejs-modules": "off" },
+    },
+    {
         // Several obsidianmd rules are type-aware, so they get the program.
         // tsconfig.json includes the tests and .mjs configs as well.
         files: ["**/*.{ts,tsx,cts,mts,js,mjs,cjs}"],
