@@ -1,10 +1,10 @@
-[ENGLISH](README.md)
-
 # Superier Highlighter
 
 Obsidian 읽기 보기에서 선택한 부분을 정확하게 하이라이트합니다. 선택한 텍스트와 앞뒤 문맥을 함께 대조하고, `==🔴텍스트==` 형식으로 저장합니다.
 
 **개발자:** [owjxyz](https://github.com/owjxyz)
+
+[ENGLISH](README.md)
 
 ## 설치
 
