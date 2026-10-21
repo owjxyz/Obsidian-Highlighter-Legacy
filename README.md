@@ -1,10 +1,10 @@
-[KOREAN](README.ko.md)
-
 # Superier Highlighter
 
 Highlight exactly what you select in Obsidian Reading View. Matches the selected text together with the text before and after it, then saves native `==🔴text==` highlights.
 
 **Author:** [owjxyz](https://github.com/owjxyz)
+
+[KOREAN](README.ko.md)
 
 ## Install
 
