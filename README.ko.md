@@ -4,7 +4,7 @@
 
 Obsidian 읽기 보기에서 선택한 부분을 정확하게 하이라이트합니다. 선택한 텍스트와 앞뒤 문맥을 함께 대조하고, `==🔴텍스트==` 형식으로 저장합니다.
 
-**개발자:** [owjxyz](https://github.com/owjxyz) · **버전:** 0.0.1 · **Obsidian:** 1.14.0 이상
+**개발자:** [owjxyz](https://github.com/owjxyz)
 
 ## 설치
 
@@ -15,12 +15,12 @@ curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highlighte
 ```
 
 - 다른 vault에 적용하려면 `python3 -` 뒤에 경로를 추가합니다.
-- Python 3.8 이상이 필요합니다. 배포 파일 세 개를 내려받고 검증합니다.
+- Python이 필요합니다. 배포 파일 세 개를 내려받고 검증합니다.
 - 변경할 파일을 백업하고 다른 설정을 보존합니다. Reader Highlighter Tags의 설정과 단축키를 이전하며, 기존 플러그인은 비활성화하고 파일은 남겨둡니다.
 - 단축키 충돌이 있으면 중단합니다. 충돌한 키만 재배정하려면 `--replace-conflicts`를 추가합니다.
 - 이미 설치된 Superier Highlighter의 설정은 보존합니다.
 
-수동 설치는 [0.0.1 배포](https://github.com/owjxyz/Obsidian-Superier-Highlighter/releases/tag/0.0.1)에서 `main.js`, `manifest.json`, `styles.css`를 받아 `.obsidian/plugins/superier-highlighter/`에 넣고 활성화합니다. 앱 내 커뮤니티 플러그인 설치는 Obsidian의 등록 승인 후 가능합니다.
+수동 설치는 [최신 배포](https://github.com/owjxyz/Obsidian-Superier-Highlighter/releases/latest)에서 `main.js`, `manifest.json`, `styles.css`를 받아 `.obsidian/plugins/superier-highlighter/`에 넣고 활성화합니다. 앱 내 커뮤니티 플러그인 설치는 Obsidian의 등록 승인 후 가능합니다.
 
 ## 단축키
 
@@ -52,7 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highlighte
 
 ## 개발
 
-Node.js 24.15 이상, Python 3.8 이상:
+Node.js와 Python이 필요합니다.
 
 ```sh
 npm ci
@@ -64,4 +64,4 @@ python3 test_install.py
 
 ## 원본
 
-DuckTapeKiller의 [Reader Highlighter Tags](https://github.com/DuckTapeKiller/obsidian-reader-highlighter-tags) 2.0.0을 바탕으로 만든 독립 개선판입니다. 원본의 [MIT 라이선스](LICENSE)와 저작권 고지를 유지합니다. 개선판 개발자는 owjxyz입니다.
+DuckTapeKiller의 [Reader Highlighter Tags](https://github.com/DuckTapeKiller/obsidian-reader-highlighter-tags)를 바탕으로 만든 독립 개선판입니다. 원본의 [MIT 라이선스](LICENSE)와 저작권 고지를 유지합니다. 개선판 개발자는 owjxyz입니다.
