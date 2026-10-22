@@ -57,7 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highlighte
 
 ## 배포 검증
 
-릴리즈 자동화는 GitHub Actions에서 태그의 소스를 빌드·검사하고, 저장소에 기록된 체크섬을 확인한 뒤 `main.js`, `manifest.json`, `styles.css`의 빌드 출처 증명(GitHub artifact attestations)을 생성합니다. 같은 파일로 릴리즈 초안을 준비하며, 정식 공개는 별도로 진행합니다. **Verify release provenance**를 브랜치에서 수동 실행하면 빌드와 출처 증명만 수행하고 릴리즈는 생성하지 않습니다.
+릴리즈 자동화는 main 브랜치 변경과 버전 태그를 GitHub Actions에서 빌드·검사하고, 저장소에 기록된 체크섬을 확인한 뒤 `main.js`, `manifest.json`, `styles.css`의 빌드 출처 증명(GitHub artifact attestations)을 생성합니다. 버전 태그일 때만 같은 파일로 릴리즈 초안을 준비하며, 정식 공개는 별도로 진행합니다. **Verify release provenance**를 브랜치에서 수동 실행하면 빌드와 출처 증명만 수행하고 릴리즈는 생성하지 않습니다.
 
 이 자동화로 만든 배포 파일을 내려받은 뒤 `gh attestation verify main.js --repo owjxyz/Obsidian-Superier-Highlighter`로 출처를 검증할 수 있습니다(`manifest.json`, `styles.css`도 동일). `SHA256SUMS`는 터미널 설치 프로그램의 무결성 검증에 필요하므로 추가 배포 파일로 유지합니다. Obsidian은 이 파일을 내려받지 않습니다. 자동화 추가만으로 기존 릴리즈가 변경되지는 않습니다.
 

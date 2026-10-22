@@ -57,7 +57,7 @@ Tags, footnote annotations, highlight navigation, exports, and reading progress 
 
 ## Release verification
 
-The release workflow builds and tests a tagged version in GitHub Actions, checks its committed checksums, and generates GitHub artifact attestations for `main.js`, `manifest.json`, and `styles.css`. Those same files are used to prepare a release draft; publishing remains a separate, deliberate step. Manually running **Verify release provenance** builds and attests the selected ref without creating a release when that ref is a branch.
+The release workflow builds and tests main-branch updates and version tags in GitHub Actions, checks their committed checksums, and generates GitHub artifact attestations for `main.js`, `manifest.json`, and `styles.css`. Only a version tag prepares a release draft using those same files; publishing remains a separate, deliberate step. Manually running **Verify release provenance** builds and attests the selected ref without creating a release when that ref is a branch.
 
 For a release produced by this workflow, download its assets and verify their build provenance with `gh attestation verify main.js --repo owjxyz/Obsidian-Superier-Highlighter` (repeat for `manifest.json` and `styles.css`). `SHA256SUMS` remains an extra release asset for the terminal installer; Obsidian does not download it. Existing releases are not changed by adding the workflow.
 
