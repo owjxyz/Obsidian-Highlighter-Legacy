@@ -180,7 +180,7 @@ describe("scenarios", () => {
         expect(visible(ctx)).toBe(true);
     });
 
-    it("E: many rapid refreshes (typing a meaning) leave a working toolbar", async () => {
+    it("E: many rapid settings refreshes leave a working toolbar", async () => {
         const ctx = await setup();
         ctx.plugin.settings.enableColorPalette = true;
         for (let i = 0; i < 10; i++) await ctx.plugin.saveSettings();

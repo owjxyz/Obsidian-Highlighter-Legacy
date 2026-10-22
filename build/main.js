@@ -221,22 +221,6 @@ var FloatingManager = class {
     return fromWorkspace != null ? fromWorkspace : activeDocument;
   }
   /**
-   * Palette entries to show in the toolbar, each keeping its index into
-   * `semanticColors` so the colour applied stays correct however the list is
-   * filtered.
-   *
-   * With "only show colours with a meaning" on, colours left unnamed are
-   * hidden — a reader using a seven-colour taxonomy should not have to pick
-   * past eight unused swatches. If nothing has been named yet, every colour is
-   * shown rather than an empty palette that looks broken.
-   */
-  visiblePaletteColors() {
-    const all = this.plugin.settings.semanticColors.map((item, index) => ({ item, index }));
-    if (!this.plugin.settings.showOnlyAssignedColors) return all;
-    const named = all.filter(({ item }) => (item.meaning || "").trim().length > 0);
-    return named.length > 0 ? named : all;
-  }
-  /**
    * Build the toolbar as one of Obsidian's own menus.
    *
    * The container carries the `menu` class and every button is a
@@ -248,7 +232,6 @@ var FloatingManager = class {
    * its variables instead.
    */
   createElements() {
-    var _a;
     if (this.containerEl) return;
     const doc = this.targetDocument();
     this.containerEl = doc.body.createDiv({ cls: "reading-highlighter-float-container" });
@@ -257,15 +240,15 @@ var FloatingManager = class {
     this.highlightBtn = this.createButton("highlighter", "Highlight selection");
     if (this.plugin.settings.enableColorPalette) {
       this.paletteContainer = this.containerEl.createDiv({ cls: "reading-highlighter-palette" });
-      for (const { item, index } of this.visiblePaletteColors()) {
+      for (const [index, color] of HIGHLIGHT_COLORS.entries()) {
         const colorBtn = this.paletteContainer.createEl("button", {
           cls: "clickable-icon reading-highlighter-btn reading-highlighter-color-btn"
         });
         colorBtn.createSpan({
           cls: "highlight-swatch reading-highlighter-swatch",
-          attr: { "data-highlight": item.color }
+          attr: { "data-highlight": color }
         });
-        colorBtn.setAttribute("aria-label", ((_a = item.meaning) == null ? void 0 : _a.trim()) || COLOR_LABELS[item.color]);
+        colorBtn.setAttribute("aria-label", COLOR_LABELS[color]);
         colorBtn.setAttribute("data-color-index", index.toString());
         this.colorButtons.push(colorBtn);
       }
@@ -2304,18 +2287,13 @@ var HighlightEditModal = class extends import_obsidian2.Modal {
     const preview = contentEl.createDiv({ cls: "highlight-edit-preview" });
     preview.createDiv({ cls: "highlight-edit-preview-label", text: "Preview" });
     preview.createDiv({ cls: "highlight-edit-preview-text", text: highlight.text || "" });
-    const meaningOf = (color) => {
-      var _a, _b, _c;
-      return (_c = (_b = (_a = this.plugin.settings.semanticColors.find((item) => item.color === color)) == null ? void 0 : _a.meaning) == null ? void 0 : _b.trim()) != null ? _c : "";
-    };
     new import_obsidian2.Setting(contentEl).setName("Colour").setDesc(
       highlight.type === "html" ? "This is an HTML highlight from an older version. Applying turns it into a native highlight." : "Written as an Obsidian highlight colour, e.g. ==\u{1F7E1}text==."
     ).addDropdown((drop) => {
       var _a;
       drop.addOption("", "Theme default");
       for (const color of HIGHLIGHT_COLORS) {
-        const meaning = meaningOf(color);
-        drop.addOption(color, meaning ? `${COLOR_LABELS[color]} \u2014 ${meaning}` : COLOR_LABELS[color]);
+        drop.addOption(color, COLOR_LABELS[color]);
       }
       drop.setValue((_a = this.state.color) != null ? _a : "");
       drop.onChange((value) => {
@@ -3071,26 +3049,11 @@ var DEFAULT_SETTINGS = {
   enableHaptics: true,
   showRemoveButton: true,
   enableColorPalette: true,
-  showOnlyAssignedColors: true,
-  semanticColors: HIGHLIGHT_COLORS.map((color) => ({ color, meaning: "" })),
   showNavigatorButton: true,
   showTooltips: false,
   enableSmartParagraphSelection: false,
   learnedNormRules: []
 };
-function migratePalette(saved) {
-  var _a;
-  const palette = HIGHLIGHT_COLORS.map((color) => ({ color, meaning: "" }));
-  for (const entry of saved != null ? saved : []) {
-    const meaning = ((_a = entry == null ? void 0 : entry.meaning) != null ? _a : "").trim();
-    const color = isHighlightColor(entry == null ? void 0 : entry.color) ? entry.color : nearestHighlightColor(entry == null ? void 0 : entry.color);
-    if (!meaning || !color) continue;
-    const target = palette[HIGHLIGHT_COLORS.indexOf(color)];
-    const existing = target.meaning.split(" / ").filter(Boolean);
-    if (!existing.includes(meaning)) target.meaning = [...existing, meaning].join(" / ");
-  }
-  return palette;
-}
 var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
   constructor() {
     super(...arguments);
@@ -3245,10 +3208,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
     this.settings = Object.assign(
       {},
       DEFAULT_SETTINGS,
-      Object.fromEntries(Object.entries(loaded).filter(([key]) => Object.hasOwn(DEFAULT_SETTINGS, key))),
-      {
-        semanticColors: migratePalette(loaded.semanticColors)
-      }
+      Object.fromEntries(Object.entries(loaded).filter(([key]) => Object.hasOwn(DEFAULT_SETTINGS, key)))
     );
     if (!isHighlightColor(this.settings.defaultHighlightColor)) {
       this.settings.defaultHighlightColor = enableColorHighlighting && nearestHighlightColor(highlightColor) || "";
@@ -3546,9 +3506,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
     new import_obsidian6.Notice("Highlighted!");
   }
   async applyColorByIndex(view, index, selectionSnapshot, toggle = false) {
-    if (index < 0 || index >= this.settings.semanticColors.length) return;
-    const palette = this.settings.semanticColors[index];
-    await this.applyColorHighlight(view, palette.color, selectionSnapshot, toggle);
+    if (!Number.isInteger(index) || index < 0 || index >= HIGHLIGHT_COLORS.length) return;
+    await this.applyColorHighlight(view, HIGHLIGHT_COLORS[index], selectionSnapshot, toggle);
   }
   async removeHighlightSelection(view, selectionSnapshot) {
     const sel = window.getSelection();
@@ -3810,11 +3769,6 @@ var ReadingHighlighterSettingTab = class extends import_obsidian6.PluginSettingT
   }
   getSettingDefinitions() {
     const s = this.plugin.settings;
-    const colourMeanings = s.semanticColors.map((item, index) => ({
-      name: COLOR_LABELS[item.color],
-      aliases: item.meaning ? [item.meaning] : [],
-      control: { type: "text", key: `semanticColors.${index}.meaning`, placeholder: "Meaning (e.g. Disagree)" }
-    }));
     const colourOptions = { "": "Theme default" };
     for (const color of HIGHLIGHT_COLORS) colourOptions[color] = COLOR_LABELS[color];
     return [
@@ -3851,20 +3805,8 @@ var ReadingHighlighterSettingTab = class extends import_obsidian6.PluginSettingT
             name: "Show colour palette",
             desc: PALETTE_DESC,
             control: { type: "toggle", key: "enableColorPalette" }
-          },
-          {
-            name: "Only show colours with a meaning",
-            desc: "Hide palette colours that have no meaning assigned below, so the toolbar shows only the ones you actually use. Turn this off to show all of them.",
-            visible: () => this.plugin.settings.enableColorPalette,
-            control: { type: "toggle", key: "showOnlyAssignedColors" }
           }
         ]
-      },
-      {
-        type: "group",
-        heading: "Semantic colour meanings",
-        visible: () => this.plugin.settings.enableColorPalette,
-        items: colourMeanings
       },
       {
         type: "group",
@@ -3926,20 +3868,13 @@ var ReadingHighlighterSettingTab = class extends import_obsidian6.PluginSettingT
   }
   /** Read a declarative control's value out of the plugin's settings. */
   getControlValue(key) {
-    var _a, _b;
-    const colour = key.match(/^semanticColors\.(\d+)\.meaning$/);
-    if (colour) return (_b = (_a = this.plugin.settings.semanticColors[Number(colour[1])]) == null ? void 0 : _a.meaning) != null ? _b : "";
     return this.plugin.settings[key];
   }
   /** Persist a declarative control's value, mirroring the imperative handlers. */
   setControlValue(key, value) {
     const settings = this.plugin.settings;
     const asText = typeof value === "string" ? value : "";
-    const colour = key.match(/^semanticColors\.(\d+)\.meaning$/);
-    if (colour) {
-      const entry = this.plugin.settings.semanticColors[Number(colour[1])];
-      if (entry) entry.meaning = asText;
-    } else if (key === "defaultHighlightColor") {
+    if (key === "defaultHighlightColor") {
       settings[key] = isHighlightColor(asText) ? asText : "";
     } else {
       settings[key] = value;

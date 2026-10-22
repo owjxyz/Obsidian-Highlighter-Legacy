@@ -67,8 +67,6 @@ export class HighlightEditModal extends Modal {
         preview.createDiv({ cls: "highlight-edit-preview-label", text: "Preview" });
         preview.createDiv({ cls: "highlight-edit-preview-text", text: highlight.text || "" });
 
-        const meaningOf = (color: HighlightColor) =>
-            this.plugin.settings.semanticColors.find((item) => item.color === color)?.meaning?.trim() ?? "";
         new Setting(contentEl)
             .setName("Colour")
             .setDesc(
@@ -79,8 +77,7 @@ export class HighlightEditModal extends Modal {
             .addDropdown((drop) => {
                 drop.addOption("", "Theme default");
                 for (const color of HIGHLIGHT_COLORS) {
-                    const meaning = meaningOf(color);
-                    drop.addOption(color, meaning ? `${COLOR_LABELS[color]} — ${meaning}` : COLOR_LABELS[color]);
+                    drop.addOption(color, COLOR_LABELS[color]);
                 }
                 drop.setValue(this.state.color ?? "");
                 drop.onChange((value) => {

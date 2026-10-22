@@ -1,7 +1,6 @@
 import { setIcon, MarkdownView, Platform, App } from "obsidian";
 import type ReadingHighlighterPlugin from "../main";
-import type { SemanticColor } from "../main";
-import { COLOR_LABELS } from "../utils/colors";
+import { COLOR_LABELS, HIGHLIGHT_COLORS } from "../utils/colors";
 
 type ActionName = "highlightSelection" | "removeHighlightSelection";
 
@@ -98,23 +97,6 @@ export class FloatingManager {
     }
 
     /**
-     * Palette entries to show in the toolbar, each keeping its index into
-     * `semanticColors` so the colour applied stays correct however the list is
-     * filtered.
-     *
-     * With "only show colours with a meaning" on, colours left unnamed are
-     * hidden — a reader using a seven-colour taxonomy should not have to pick
-     * past eight unused swatches. If nothing has been named yet, every colour is
-     * shown rather than an empty palette that looks broken.
-     */
-    visiblePaletteColors(): { item: SemanticColor; index: number }[] {
-        const all = this.plugin.settings.semanticColors.map((item, index) => ({ item, index }));
-        if (!this.plugin.settings.showOnlyAssignedColors) return all;
-        const named = all.filter(({ item }) => (item.meaning || "").trim().length > 0);
-        return named.length > 0 ? named : all;
-    }
-
-    /**
      * Build the toolbar as one of Obsidian's own menus.
      *
      * The container carries the `menu` class and every button is a
@@ -142,15 +124,15 @@ export class FloatingManager {
         if (this.plugin.settings.enableColorPalette) {
             this.paletteContainer = this.containerEl.createDiv({ cls: "reading-highlighter-palette" });
 
-            for (const { item, index } of this.visiblePaletteColors()) {
+            for (const [index, color] of HIGHLIGHT_COLORS.entries()) {
                 const colorBtn = this.paletteContainer.createEl("button", {
                     cls: "clickable-icon reading-highlighter-btn reading-highlighter-color-btn",
                 });
                 colorBtn.createSpan({
                     cls: "highlight-swatch reading-highlighter-swatch",
-                    attr: { "data-highlight": item.color },
+                    attr: { "data-highlight": color },
                 });
-                colorBtn.setAttribute("aria-label", item.meaning?.trim() || COLOR_LABELS[item.color]);
+                colorBtn.setAttribute("aria-label", COLOR_LABELS[color]);
                 colorBtn.setAttribute("data-color-index", index.toString());
                 this.colorButtons.push(colorBtn);
             }
@@ -207,8 +189,7 @@ export class FloatingManager {
 
         // Color palette buttons
         this.colorButtons.forEach((btn) => {
-            // Read the index off the button: the palette may be filtered, so a
-            // button's position is not its index into `semanticColors`.
+            // Native colour order matches the colour shortcut indices.
             const index = Number(btn.getAttribute("data-color-index"));
             const handler = (evt: Event) => {
                 preventFocus(evt);

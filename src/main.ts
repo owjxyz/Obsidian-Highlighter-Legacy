@@ -9,7 +9,6 @@ import {
     TFile,
     type Command,
     type SettingDefinitionItem,
-    type SettingGroupItem,
 } from "obsidian";
 import { FloatingManager, type SelectionSnapshot } from "./ui/FloatingManager";
 import { SelectionLogic } from "./core/SelectionLogic";
@@ -36,11 +35,6 @@ import { kindForElement, type BlockKind } from "./utils/sourceBlocks";
 import { editHighlightRange } from "./utils/preciseHighlight";
 import { BulkRecolorModal } from "./modals/BulkRecolorModal";
 
-export interface SemanticColor {
-    color: HighlightColor;
-    meaning: string;
-}
-
 interface LearnedNormRule {
     stripPattern: string;
 }
@@ -49,7 +43,6 @@ interface LearnedNormRule {
 interface LegacyColorSettings {
     enableColorHighlighting?: boolean;
     highlightColor?: string;
-    semanticColors?: { color?: string; meaning?: string }[];
 }
 
 interface ReadingHighlighterSettings {
@@ -59,8 +52,6 @@ interface ReadingHighlighterSettings {
     enableHaptics: boolean;
     showRemoveButton: boolean;
     enableColorPalette: boolean;
-    showOnlyAssignedColors: boolean;
-    semanticColors: SemanticColor[];
     showNavigatorButton: boolean;
     showTooltips: boolean;
     enableSmartParagraphSelection: boolean;
@@ -75,33 +66,11 @@ const DEFAULT_SETTINGS: ReadingHighlighterSettings = {
     enableHaptics: true,
     showRemoveButton: true,
     enableColorPalette: true,
-    showOnlyAssignedColors: true,
-    semanticColors: HIGHLIGHT_COLORS.map((color) => ({ color, meaning: "" })),
     showNavigatorButton: true,
     showTooltips: false,
     enableSmartParagraphSelection: false,
     learnedNormRules: [],
 };
-
-/**
- * The palette, one entry per native colour in Obsidian's order.
- *
- * Older versions kept fifteen hex colours. Each meaning the reader gave one of
- * those moves to the native colour nearest it, so a taxonomy survives the
- * switch; two meanings landing on one colour are joined rather than lost.
- */
-function migratePalette(saved: LegacyColorSettings["semanticColors"]): SemanticColor[] {
-    const palette: SemanticColor[] = HIGHLIGHT_COLORS.map((color) => ({ color, meaning: "" }));
-    for (const entry of saved ?? []) {
-        const meaning = (entry?.meaning ?? "").trim();
-        const color = isHighlightColor(entry?.color) ? entry.color : nearestHighlightColor(entry?.color);
-        if (!meaning || !color) continue;
-        const target = palette[HIGHLIGHT_COLORS.indexOf(color)];
-        const existing = target.meaning.split(" / ").filter(Boolean);
-        if (!existing.includes(meaning)) target.meaning = [...existing, meaning].join(" / ");
-    }
-    return palette;
-}
 
 /** What `SelectionLogic.locateSelection` resolves a selection to. */
 interface LocatedRange {
@@ -303,10 +272,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
         this.settings = Object.assign(
             {},
             DEFAULT_SETTINGS,
-            Object.fromEntries(Object.entries(loaded).filter(([key]) => Object.hasOwn(DEFAULT_SETTINGS, key))),
-            {
-                semanticColors: migratePalette(loaded.semanticColors),
-            }
+            Object.fromEntries(Object.entries(loaded).filter(([key]) => Object.hasOwn(DEFAULT_SETTINGS, key)))
         );
         if (!isHighlightColor(this.settings.defaultHighlightColor)) {
             // A default colour chosen when highlights were HTML becomes the
@@ -664,9 +630,8 @@ export default class ReadingHighlighterPlugin extends Plugin {
         selectionSnapshot?: SelectionSnapshot | null,
         toggle = false
     ) {
-        if (index < 0 || index >= this.settings.semanticColors.length) return;
-        const palette = this.settings.semanticColors[index];
-        await this.applyColorHighlight(view, palette.color, selectionSnapshot, toggle);
+        if (!Number.isInteger(index) || index < 0 || index >= HIGHLIGHT_COLORS.length) return;
+        await this.applyColorHighlight(view, HIGHLIGHT_COLORS[index], selectionSnapshot, toggle);
     }
 
     async removeHighlightSelection(view: MarkdownView, selectionSnapshot?: SelectionSnapshot | null) {
@@ -974,11 +939,6 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
     }
     getSettingDefinitions(): SettingDefinitionItem[] {
         const s = this.plugin.settings;
-        const colourMeanings: SettingGroupItem[] = s.semanticColors.map((item, index) => ({
-            name: COLOR_LABELS[item.color],
-            aliases: item.meaning ? [item.meaning] : [],
-            control: { type: "text", key: `semanticColors.${index}.meaning`, placeholder: "Meaning (e.g. Disagree)" },
-        }));
         const colourOptions: Record<string, string> = { "": "Theme default" };
         for (const color of HIGHLIGHT_COLORS) colourOptions[color] = COLOR_LABELS[color];
 
@@ -1017,19 +977,7 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
                         desc: PALETTE_DESC,
                         control: { type: "toggle", key: "enableColorPalette" },
                     },
-                    {
-                        name: "Only show colours with a meaning",
-                        desc: "Hide palette colours that have no meaning assigned below, so the toolbar shows only the ones you actually use. Turn this off to show all of them.",
-                        visible: () => this.plugin.settings.enableColorPalette,
-                        control: { type: "toggle", key: "showOnlyAssignedColors" },
-                    },
                 ],
-            },
-            {
-                type: "group",
-                heading: "Semantic colour meanings",
-                visible: () => this.plugin.settings.enableColorPalette,
-                items: colourMeanings,
             },
             {
                 type: "group",
@@ -1094,8 +1042,6 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
 
     /** Read a declarative control's value out of the plugin's settings. */
     getControlValue(key: string): unknown {
-        const colour = key.match(/^semanticColors\.(\d+)\.meaning$/);
-        if (colour) return this.plugin.settings.semanticColors[Number(colour[1])]?.meaning ?? "";
         return (this.plugin.settings as unknown as Record<string, unknown>)[key];
     }
 
@@ -1105,11 +1051,7 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
         // Text-bearing controls hand back a string; anything else is stored as
         // given, so a toggle stays a boolean.
         const asText = typeof value === "string" ? value : "";
-        const colour = key.match(/^semanticColors\.(\d+)\.meaning$/);
-        if (colour) {
-            const entry = this.plugin.settings.semanticColors[Number(colour[1])];
-            if (entry) entry.meaning = asText;
-        } else if (key === "defaultHighlightColor") {
+        if (key === "defaultHighlightColor") {
             settings[key] = isHighlightColor(asText) ? asText : "";
         } else {
             settings[key] = value;

@@ -8,6 +8,8 @@ import { MarkdownView } from "./obsidian-stub.js";
 import { setup, highlightRange } from "./WritePath.test.js";
 
 const legacy = {
+    semanticColors: [{ color: "red", meaning: "Important" }],
+    showOnlyAssignedColors: true,
     defaultTagPrefix: "book",
     enableFrontmatterTag: true,
     frontmatterTag: "highlighted",

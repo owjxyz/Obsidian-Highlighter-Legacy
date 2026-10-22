@@ -136,25 +136,13 @@ describe("settings from versions that coloured with HTML", () => {
         return plugin.settings;
     }
 
-    it("moves each meaning to the nearest native colour", async () => {
+    it("drops old colour meanings and filtering settings", async () => {
         const settings = await load({
-            semanticColors: [
-                { color: "#FFCDD2", meaning: "Important" },
-                { color: "#F8BBD0", meaning: "" },
-                { color: "#BBDEFB", meaning: "Vocabulary" },
-                { color: "#C8E6C9", meaning: "Key Concept" },
-                { color: "#FFF9C4", meaning: "General" },
-                { color: "#F0F4C0", meaning: "Aside" },
-            ],
+            semanticColors: [{ color: "#FFCDD2", meaning: "Important" }],
+            showOnlyAssignedColors: true,
         });
-        expect(settings.semanticColors).toEqual([
-            { color: "red", meaning: "Important" },
-            { color: "orange", meaning: "" },
-            { color: "yellow", meaning: "General / Aside" },
-            { color: "green", meaning: "Key Concept" },
-            { color: "blue", meaning: "Vocabulary" },
-            { color: "purple", meaning: "" },
-        ]);
+        expect(settings).not.toHaveProperty("semanticColors");
+        expect(settings).not.toHaveProperty("showOnlyAssignedColors");
     });
 
     it("turns the old default colour into a native one, and drops the old keys", async () => {
@@ -175,20 +163,14 @@ describe("settings from versions that coloured with HTML", () => {
             meaning: i === 3 ? "Idea" : "",
         }));
         const settings = await load({ semanticColors: palette, defaultHighlightColor: "blue" });
-        expect(settings.semanticColors).toEqual(palette);
+        expect(settings).not.toHaveProperty("semanticColors");
         expect(settings.defaultHighlightColor).toBe("blue");
     });
 
-    it("starts new installs with the six colours and no default", async () => {
+    it("starts new installs without meaning settings or a default colour", async () => {
         const settings = await load(null);
-        expect(settings.semanticColors.map((c) => c.color)).toEqual([
-            "red",
-            "orange",
-            "yellow",
-            "green",
-            "blue",
-            "purple",
-        ]);
+        expect(settings).not.toHaveProperty("semanticColors");
+        expect(settings).not.toHaveProperty("showOnlyAssignedColors");
         expect(settings.defaultHighlightColor).toBe("");
     });
 });
