@@ -21,7 +21,12 @@ async function setup(opts = {}) {
     const app = {
         vault: { read: async () => "", modify: async () => {}, getAbstractFileByPath: () => null },
         metadataCache: { getFileCache: () => ({ embeds: [] }) },
-        workspace: { getActiveViewOfType: () => (opts.noView ? null : view), on: () => {}, off: () => {} },
+        workspace: {
+            getActiveViewOfType: () => (opts.noView ? null : view),
+            getLeavesOfType: () => [],
+            on: () => {},
+            off: () => {},
+        },
     };
     const plugin = new ReadingHighlighterPlugin(app, { id: "t", version: "0" });
     await plugin.loadSettings();

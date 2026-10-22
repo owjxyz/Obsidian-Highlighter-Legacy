@@ -1,4 +1,4 @@
-import { App, TFile } from "obsidian";
+import { App, TFile, normalizePath } from "obsidian";
 import { getHighlightsFromContent } from "../utils/export";
 import type { Highlight } from "../utils/highlights";
 
@@ -16,6 +16,23 @@ interface CacheEntry {
 
 type ProgressCallback = (current: number, total: number, filename: string) => void;
 
+function parseFolders(value = ""): string[] {
+    if (typeof value !== "string") throw new Error("Use vault-relative folder paths, one per line.");
+    return value
+        .split(/\r?\n/)
+        .map((folder) => folder.trim())
+        .filter(Boolean)
+        .map((folder) => {
+            if (
+                /^(?:[/\\]|[a-z]:)/i.test(folder) ||
+                folder.split(/[/\\]+/).some((part) => part === "." || part === "..")
+            ) {
+                throw new Error("Use vault-relative folder paths without '.' or '..', one per line.");
+            }
+            return normalizePath(folder);
+        });
+}
+
 export class VaultScanner {
     app: App;
     cache: Map<string, CacheEntry>;
@@ -26,10 +43,20 @@ export class VaultScanner {
     }
 
     /**
-     * Scans the entire vault for highlights asynchronously.
+     * Lists Markdown paths, then reads only notes in the requested folders.
      */
-    async scanVault(onProgress: ProgressCallback = () => {}): Promise<ScanResult[]> {
-        const files = this.app.vault.getMarkdownFiles();
+    async scanVault(
+        onProgress: ProgressCallback = () => {},
+        scope: { includeFolders?: string; excludeFolders?: string; signal?: AbortSignal } = {}
+    ): Promise<ScanResult[]> {
+        scope.signal?.throwIfAborted();
+        const included = parseFolders(scope.includeFolders);
+        const excluded = parseFolders(scope.excludeFolders);
+        const within = (path: string, folder: string) => path.startsWith(folder + "/");
+        const allowed = (file: TFile) =>
+            (!included.length || included.some((folder) => within(file.path, folder))) &&
+            !excluded.some((folder) => within(file.path, folder));
+        const files = this.app.vault.getMarkdownFiles().filter(allowed);
         const total = files.length;
         const results: ScanResult[] = [];
 
@@ -37,9 +64,12 @@ export class VaultScanner {
         const BATCH_SIZE = 20;
 
         for (let i = 0; i < total; i += BATCH_SIZE) {
+            scope.signal?.throwIfAborted();
             const batch = files.slice(i, i + BATCH_SIZE);
 
-            const batchPromises = batch.map(async (file): Promise<ScanResult> => {
+            const batchPromises = batch.map(async (file): Promise<ScanResult | null> => {
+                if (!allowed(file)) return null;
+                const path = file.path;
                 const stat = file.stat;
 
                 // Check cache
@@ -50,6 +80,8 @@ export class VaultScanner {
 
                 // Read and parse
                 const content = await this.app.vault.cachedRead(file);
+                scope.signal?.throwIfAborted();
+                if (file.path !== path || !allowed(file)) return null;
                 const highlights = getHighlightsFromContent(content);
                 const metadata = this.app.metadataCache.getFileCache(file);
                 const frontmatter = (metadata?.frontmatter as Record<string, unknown>) || {};
@@ -67,7 +99,7 @@ export class VaultScanner {
             const batchResults = await Promise.all(batchPromises);
 
             for (const res of batchResults) {
-                if (res.highlights.length > 0) {
+                if (res && res.highlights.length > 0) {
                     results.push(res);
                 }
             }
@@ -80,11 +112,12 @@ export class VaultScanner {
             // Yield to main thread
             await new Promise((resolve) => window.setTimeout(resolve, 0));
         }
+        scope.signal?.throwIfAborted();
 
         // Sort results by file name
         results.sort((a, b) => a.file.basename.localeCompare(b.file.basename));
 
-        return results;
+        return results.filter((result) => allowed(result.file));
     }
 
     /**

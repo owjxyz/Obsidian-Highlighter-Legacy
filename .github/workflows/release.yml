@@ -1,0 +1,80 @@
+name: Verify release provenance
+
+on:
+    push:
+        tags: ["[0-9]*"]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            id-token: write
+            attestations: write
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "24"
+                  cache: "npm"
+            - run: npm ci
+            - run: npm run format:check
+            - run: npm run typecheck
+            - run: npm test
+            - run: python3 test_install.py
+            - run: npm run build
+            - run: python3 test_metadata.py
+            - run: sha256sum -c SHA256SUMS
+            - name: Check release tag
+              if: github.ref_type == 'tag'
+              run: |
+                  python3 - <<'PY'
+                  import json, os
+                  from pathlib import Path
+                  version = json.loads(Path('manifest.json').read_text())['version']
+                  assert os.environ['GITHUB_REF_NAME'] == version, 'Tag must match manifest version'
+                  PY
+            - name: Attest the distribution files
+              uses: actions/attest@v4
+              with:
+                  subject-path: |
+                      main.js
+                      manifest.json
+                      styles.css
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: plugin-${{ github.sha }}
+                  path: |
+                      main.js
+                      manifest.json
+                      styles.css
+                      SHA256SUMS
+                  if-no-files-found: error
+
+    draft:
+        if: github.ref_type == 'tag'
+        needs: build
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/download-artifact@v4
+              with:
+                  name: plugin-${{ github.sha }}
+            - name: Verify and prepare a release draft
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+              run: |
+                  sha256sum -c SHA256SUMS
+                  gh attestation verify main.js --repo "$GH_REPO"
+                  gh attestation verify manifest.json --repo "$GH_REPO"
+                  gh attestation verify styles.css --repo "$GH_REPO"
+                  gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css SHA256SUMS \
+                    --draft --verify-tag --title "Superier Highlighter $GITHUB_REF_NAME" --generate-notes

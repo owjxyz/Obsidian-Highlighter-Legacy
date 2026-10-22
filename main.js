@@ -964,7 +964,7 @@ __export(main_exports, {
   default: () => ReadingHighlighterPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 
 // src/ui/FloatingManager.ts
 var import_obsidian = require("obsidian");
@@ -3826,33 +3826,55 @@ var HighlightNavigatorView = class extends import_obsidian7.ItemView {
 };
 
 // src/views/ResearchView.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/core/VaultScanner.ts
+var import_obsidian8 = require("obsidian");
 init_export();
+function parseFolders(value = "") {
+  if (typeof value !== "string") throw new Error("Use vault-relative folder paths, one per line.");
+  return value.split(/\r?\n/).map((folder) => folder.trim()).filter(Boolean).map((folder) => {
+    if (/^(?:[/\\]|[a-z]:)/i.test(folder) || folder.split(/[/\\]+/).some((part) => part === "." || part === "..")) {
+      throw new Error("Use vault-relative folder paths without '.' or '..', one per line.");
+    }
+    return (0, import_obsidian8.normalizePath)(folder);
+  });
+}
 var VaultScanner = class {
   constructor(app) {
     this.app = app;
     this.cache = /* @__PURE__ */ new Map();
   }
   /**
-   * Scans the entire vault for highlights asynchronously.
+   * Lists Markdown paths, then reads only notes in the requested folders.
    */
   async scanVault(onProgress = () => {
-  }) {
-    const files = this.app.vault.getMarkdownFiles();
+  }, scope = {}) {
+    var _a, _b, _c;
+    (_a = scope.signal) == null ? void 0 : _a.throwIfAborted();
+    const included = parseFolders(scope.includeFolders);
+    const excluded = parseFolders(scope.excludeFolders);
+    const within = (path, folder) => path.startsWith(folder + "/");
+    const allowed = (file) => (!included.length || included.some((folder) => within(file.path, folder))) && !excluded.some((folder) => within(file.path, folder));
+    const files = this.app.vault.getMarkdownFiles().filter(allowed);
     const total = files.length;
     const results = [];
     const BATCH_SIZE = 20;
     for (let i = 0; i < total; i += BATCH_SIZE) {
+      (_b = scope.signal) == null ? void 0 : _b.throwIfAborted();
       const batch = files.slice(i, i + BATCH_SIZE);
       const batchPromises = batch.map(async (file) => {
+        var _a2;
+        if (!allowed(file)) return null;
+        const path = file.path;
         const stat = file.stat;
         const cached = this.cache.get(file.path);
         if (cached && cached.mtime === stat.mtime) {
           return { file, highlights: cached.highlights, frontmatter: cached.frontmatter };
         }
         const content = await this.app.vault.cachedRead(file);
+        (_a2 = scope.signal) == null ? void 0 : _a2.throwIfAborted();
+        if (file.path !== path || !allowed(file)) return null;
         const highlights = getHighlightsFromContent(content);
         const metadata = this.app.metadataCache.getFileCache(file);
         const frontmatter = (metadata == null ? void 0 : metadata.frontmatter) || {};
@@ -3865,7 +3887,7 @@ var VaultScanner = class {
       });
       const batchResults = await Promise.all(batchPromises);
       for (const res of batchResults) {
-        if (res.highlights.length > 0) {
+        if (res && res.highlights.length > 0) {
           results.push(res);
         }
       }
@@ -3874,8 +3896,9 @@ var VaultScanner = class {
       onProgress(current, total, lastFileName);
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     }
+    (_c = scope.signal) == null ? void 0 : _c.throwIfAborted();
     results.sort((a, b) => a.file.basename.localeCompare(b.file.basename));
-    return results;
+    return results.filter((result) => allowed(result.file));
   }
   /**
    * Clear the cache to force a full re-scan
@@ -3895,11 +3918,13 @@ function asText3(value) {
   }
   return "";
 }
-var ResearchView = class extends import_obsidian8.ItemView {
+var ResearchView = class extends import_obsidian9.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
+    this.scanAbort = null;
     this.plugin = plugin;
     this.scanner = new VaultScanner(plugin.app);
+    this.scanScope = this.scopeKey();
     this.scanResults = [];
     this.searchQuery = "";
     this.filterKey = "All Properties";
@@ -3921,16 +3946,20 @@ var ResearchView = class extends import_obsidian8.ItemView {
     return "search";
   }
   async onOpen() {
+    this.registerEvent(this.plugin.app.vault.on("rename", () => this.refreshScanScope(true)));
     const container = this.containerEl.children[1];
     container.empty();
     container.addClass("research-view-container");
     const header = container.createDiv({ cls: "research-view-header" });
     const titleRow = header.createDiv({ cls: "research-view-title-row" });
     titleRow.createEl("h3", { text: "Research view" });
-    const scanBtn = titleRow.createEl("button", { text: "Scan vault", cls: "mod-cta" });
+    const scanBtn = titleRow.createEl("button", { text: "Scan folders", cls: "mod-cta" });
     scanBtn.onclick = () => void this.startScan();
     const canvasBtn = titleRow.createEl("button", { text: "Export canvas" });
     canvasBtn.onclick = () => void this.exportToCanvas();
+    header.createDiv({
+      text: "Scans the folders selected in plugin settings. An empty include list searches the whole vault; excluded folders are not read."
+    });
     const searchContainer = header.createDiv({ cls: "research-view-search" });
     const searchInput = searchContainer.createEl("input", {
       type: "text",
@@ -3988,22 +4017,52 @@ var ResearchView = class extends import_obsidian8.ItemView {
     const progressTrack = this.progressContainer.createDiv({ cls: "research-progress-track" });
     this.progressEl = progressTrack.createDiv({ cls: "research-progress-bar" });
     this.contentEl = container.createDiv({ cls: "research-view-content" });
-    void this.startScan();
+    if (this.plugin.settings.researchAutoScan === true) void this.startScan();
+    else this.renderContent();
+  }
+  scopeKey() {
+    return JSON.stringify([this.plugin.settings.researchFolders, this.plugin.settings.researchExcludedFolders]);
+  }
+  refreshScanScope(force = false) {
+    var _a;
+    const scope = this.scopeKey();
+    if (!force && scope === this.scanScope) return;
+    (_a = this.scanAbort) == null ? void 0 : _a.abort();
+    this.scanScope = scope;
+    this.scanResults = [];
+    this.scanner.clearCache();
+    this.contentEl.empty();
+    this.renderContent();
   }
   async startScan() {
     if (this.isScanning) return;
+    this.refreshScanScope();
+    const scope = this.scanScope;
+    this.scanAbort = new AbortController();
     this.isScanning = true;
     this.progressContainer.setCssStyles({ display: "block" });
     this.contentEl.empty();
     try {
-      this.scanResults = await this.scanner.scanVault((current, total, lastFile) => {
-        var _a;
-        const percent = Math.round(current / total * 100);
-        (_a = this.progressEl) == null ? void 0 : _a.setCssStyles({ width: `${percent}%` });
-        if (this.progressTextEl) {
-          this.progressTextEl.textContent = `Scanning: ${current}/${total} (${percent}%) - ${lastFile}...`;
+      const results = await this.scanner.scanVault(
+        (current, total, lastFile) => {
+          var _a;
+          const percent = Math.round(current / total * 100);
+          (_a = this.progressEl) == null ? void 0 : _a.setCssStyles({ width: `${percent}%` });
+          if (this.progressTextEl) {
+            this.progressTextEl.textContent = `Scanning: ${current}/${total} (${percent}%) - ${lastFile}...`;
+          }
+        },
+        {
+          includeFolders: this.plugin.settings.researchFolders,
+          excludeFolders: this.plugin.settings.researchExcludedFolders,
+          signal: this.scanAbort.signal
         }
-      });
+      );
+      if (this.scanAbort.signal.aborted || scope !== this.scanScope) {
+        this.scanner.clearCache();
+        return;
+      }
+      this.scanResults = results;
       this.allPropertyKeys.clear();
       this.allPropertyKeys.add("All Properties");
       for (const res of this.scanResults) {
@@ -4016,16 +4075,29 @@ var ResearchView = class extends import_obsidian8.ItemView {
         this.expandedFiles.add(this.scanResults[0].file.path);
       }
     } catch (err) {
+      if (this.scanAbort.signal.aborted) return;
       console.error(err);
+      this.scanResults = [];
+      this.contentEl.empty();
       this.contentEl.createDiv({
         text: "Error during scan: " + (err instanceof Error ? err.message : String(err)),
         cls: "research-error"
       });
+      return;
     } finally {
+      const cancelled = this.scanAbort.signal.aborted;
       this.isScanning = false;
       this.progressContainer.setCssStyles({ display: "none" });
-      this.renderContent();
+      if (cancelled || scope !== this.scanScope) this.renderContent();
+      this.scanAbort = null;
     }
+    this.renderContent();
+  }
+  async onClose() {
+    var _a;
+    (_a = this.scanAbort) == null ? void 0 : _a.abort();
+    this.scanResults = [];
+    this.scanner.clearCache();
   }
   updatePropertySelector() {
     if (!this.propertySelect) return;
@@ -4079,7 +4151,7 @@ var ResearchView = class extends import_obsidian8.ItemView {
     if (this.scanResults.length === 0) {
       this.contentEl.createDiv({
         cls: "research-empty",
-        text: "No highlights found. Click 'Scan Vault' to analyze."
+        text: "No highlights to show. Click 'Scan folders' to search the selected folders."
       });
       return;
     }
@@ -4154,7 +4226,7 @@ var ResearchView = class extends import_obsidian8.ItemView {
   async jumpToHighlight(file, line) {
     const leaf = this.app.workspace.getLeaf("tab");
     await leaf.openFile(file);
-    if (leaf.view instanceof import_obsidian8.MarkdownView) {
+    if (leaf.view instanceof import_obsidian9.MarkdownView) {
       leaf.setEphemeralState({
         line,
         focus: true
@@ -4172,14 +4244,14 @@ var ResearchView = class extends import_obsidian8.ItemView {
       allHighlights = allHighlights.filter((h) => h.color !== null && this.activeColors.has(h.color));
     }
     if (allHighlights.length === 0) {
-      new import_obsidian8.Notice("No highlights to export to canvas.");
+      new import_obsidian9.Notice("No highlights to export to canvas.");
       return;
     }
     try {
-      new import_obsidian8.Notice("Generating canvas...");
+      new import_obsidian9.Notice("Generating canvas...");
       const exportPath = await exportHighlightsToCanvas(this.app, allHighlights);
       const file = this.app.vault.getAbstractFileByPath(exportPath);
-      if (file instanceof import_obsidian8.TFile) {
+      if (file instanceof import_obsidian9.TFile) {
         const leaf = this.app.workspace.getLeaf("tab");
         await leaf.openFile(file);
       }
@@ -4222,8 +4294,8 @@ function setFallbackScroll(view, { y }) {
 init_export();
 
 // src/ui/FailureRecoveryModal.ts
-var import_obsidian9 = require("obsidian");
-var FailureRecoveryModal = class extends import_obsidian9.Modal {
+var import_obsidian10 = require("obsidian");
+var FailureRecoveryModal = class extends import_obsidian10.Modal {
   constructor(app, report, onSubmit) {
     super(app);
     this.report = report;
@@ -4243,7 +4315,7 @@ var FailureRecoveryModal = class extends import_obsidian9.Modal {
         text: "This text appears to come from an embedded note. Open the source note directly and highlight it there.",
         cls: "recovery-hint-msg"
       });
-      new import_obsidian9.Setting(contentEl).addButton((btn) => btn.setButtonText("Close").onClick(() => this.close()));
+      new import_obsidian10.Setting(contentEl).addButton((btn) => btn.setButtonText("Close").onClick(() => this.close()));
       return;
     }
     contentEl.createEl("p", {
@@ -4256,17 +4328,17 @@ var FailureRecoveryModal = class extends import_obsidian9.Modal {
     });
     const previewContainer = contentEl.createDiv({ cls: "recovery-rule-preview", text: "" });
     this.correction = this.report.bestGuessContext ? `==${this.report.bestGuessContext}==` : "";
-    new import_obsidian9.Setting(contentEl).setClass("recovery-input-setting").addTextArea((text) => {
+    new import_obsidian10.Setting(contentEl).setClass("recovery-input-setting").addTextArea((text) => {
       text.setPlaceholder("Wrap text in ==highlight syntax==...").setValue(this.correction).onChange((value) => {
         this.correction = value;
         this.updatePreview(previewContainer);
       });
       window.setTimeout(() => text.inputEl.focus(), 10);
     });
-    new import_obsidian9.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton(
+    new import_obsidian10.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton(
       (btn) => btn.setButtonText("Apply once").onClick(() => {
         if (!this.correction.trim()) {
-          new import_obsidian9.Notice("Please provide the corrected text.");
+          new import_obsidian10.Notice("Please provide the corrected text.");
           return;
         }
         void this.onSubmit(this.target(), null);
@@ -4275,7 +4347,7 @@ var FailureRecoveryModal = class extends import_obsidian9.Modal {
     ).addButton(
       (btn) => btn.setButtonText("Apply & learn").setCta().onClick(() => {
         if (!this.correction.trim()) {
-          new import_obsidian9.Notice("Please provide the corrected text.");
+          new import_obsidian10.Notice("Please provide the corrected text.");
           return;
         }
         const finalTarget = this.target();
@@ -4621,7 +4693,10 @@ var DEFAULT_SETTINGS = {
   enableFrontmatterTag: false,
   frontmatterTag: "resaltados",
   enableSmartParagraphSelection: false,
-  learnedNormRules: []
+  learnedNormRules: [],
+  researchAutoScan: false,
+  researchFolders: "",
+  researchExcludedFolders: ""
 };
 function migratePalette(saved) {
   var _a;
@@ -4642,7 +4717,7 @@ function toDisplayString(value) {
   const primitive = value;
   return String(primitive);
 }
-var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
+var ReadingHighlighterPlugin = class extends import_obsidian11.Plugin {
   constructor() {
     super(...arguments);
     /**
@@ -4676,11 +4751,11 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
         this.flushReadingProgress();
       })
     );
-    if (import_obsidian10.Platform.isMobile) {
+    if (import_obsidian11.Platform.isMobile) {
       const btn = this.addRibbonIcon("highlighter", "Highlight selection", () => {
         const view = this.getActiveReadingView();
         if (view) void this.highlightSelection(view);
-        else new import_obsidian10.Notice("Open a note in reading view first.");
+        else new import_obsidian11.Notice("Open a note in reading view first.");
       });
       this.register(() => btn.remove());
     }
@@ -4716,7 +4791,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       id: "extract-all-pdf-text",
       name: "Extract all text from current PDF",
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian10.View);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian11.View);
         if (view && view.getViewType() === "pdf") {
           if (!checking) {
             void this.extractAllPdfText(view);
@@ -4795,7 +4870,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       id: "export-highlights-json",
       name: "Export highlights to JSON",
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
         if (!view || !view.file) return false;
         if (checking) return true;
         void this.exportHighlightsJSON(view);
@@ -4806,7 +4881,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       id: "export-highlights-csv",
       name: "Export highlights to CSV",
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
         if (!view || !view.file) return false;
         if (checking) return true;
         void this.exportHighlightsCSV(view);
@@ -4828,7 +4903,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       id: "remove-all-annotations",
       name: "Remove all annotations from note",
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
         if (!view || !view.file) return false;
         if (checking) return true;
         void this.removeAllAnnotations(view.file);
@@ -4839,7 +4914,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       id: "merge-adjacent-highlights",
       name: "Merge adjacent highlights in note",
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
         if (!view || !view.file) return false;
         if (checking) return true;
         void this.mergeAdjacentHighlightsInFile(view.file);
@@ -4850,7 +4925,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       id: "recolor-highlights",
       name: "Recolour highlights in note\u2026",
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
         if (!view || !view.file) return false;
         if (checking) return true;
         new BulkRecolorModal(this, view.file).open();
@@ -4861,7 +4936,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       id: "convert-html-highlights",
       name: "Convert HTML highlights to native highlights in note",
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
         if (!view || !view.file) return false;
         if (checking) return true;
         void this.convertHtmlHighlightsInFile(view.file);
@@ -4926,11 +5001,14 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
     }
   }
   async saveSettings() {
+    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_VIEW)) {
+      leaf.view.refreshScanScope();
+    }
     await this.saveData(this.settings);
     this.floatingManager.refresh();
   }
   getActiveReadingView() {
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
     return view && view.getMode() === "preview" ? view : null;
   }
   getSelectionContext(selectionSnapshot) {
@@ -5010,7 +5088,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
     const contextElement = (selectionContext == null ? void 0 : selectionContext.element) || null;
     const hint = this.getWithinBlockHint(contextElement, selectionSnapshot, snippet);
     if (!hint) {
-      new import_obsidian10.Notice("The selected element has no reliable text position. The note was not changed.");
+      new import_obsidian11.Notice("The selected element has no reliable text position. The note was not changed.");
       return null;
     }
     return {
@@ -5063,20 +5141,20 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
   async undoLastHighlight() {
     const last = this.lastModification;
     if (!last || last.after === void 0) {
-      new import_obsidian10.Notice("Nothing to undo.");
+      new import_obsidian11.Notice("Nothing to undo.");
       return;
     }
     try {
       const current = await this.app.vault.read(last.file);
       if (current !== last.after) {
-        new import_obsidian10.Notice("The note has changed since, so undoing would lose those changes.");
+        new import_obsidian11.Notice("The note has changed since, so undoing would lose those changes.");
         return;
       }
       await this.app.vault.modify(last.file, last.original);
-      new import_obsidian10.Notice("Undone last highlight.");
+      new import_obsidian11.Notice("Undone last highlight.");
       this.lastModification = null;
     } catch (err) {
-      new import_obsidian10.Notice("Failed to undo.");
+      new import_obsidian11.Notice("Failed to undo.");
       console.error(err);
     }
   }
@@ -5158,7 +5236,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
     const sel = window.getSelection();
     const request = this.buildSelectionRequest(view, selectionSnapshot);
     if (!request) {
-      new import_obsidian10.Notice("No text selected.");
+      new import_obsidian11.Notice("No text selected.");
       return;
     }
     const scrollPos = getScroll(view);
@@ -5172,7 +5250,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       }
       this.restoreScroll(view, scrollPos);
       sel == null ? void 0 : sel.removeAllRanges();
-      new import_obsidian10.Notice("Highlighted!");
+      new import_obsidian11.Notice("Highlighted!");
       return;
     }
     const result = await this.logic.locateSelection(
@@ -5194,10 +5272,10 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
       return;
     this.restoreScroll(view, scrollPos);
     sel == null ? void 0 : sel.removeAllRanges();
-    if (this.settings.enableHaptics && import_obsidian10.Platform.isMobile) {
+    if (this.settings.enableHaptics && import_obsidian11.Platform.isMobile) {
       (_a = navigator.vibrate) == null ? void 0 : _a.call(navigator, 10);
     }
-    new import_obsidian10.Notice("Highlighted!");
+    new import_obsidian11.Notice("Highlighted!");
   }
   async applyColorByIndex(view, index, selectionSnapshot, toggle = false) {
     if (index < 0 || index >= this.settings.semanticColors.length) return;
@@ -5209,12 +5287,12 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
     if (!view.file) return;
     let snippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || ((_a = window.getSelection()) == null ? void 0 : _a.toString()) || "";
     if (!snippet.trim()) {
-      new import_obsidian10.Notice("No text selected.");
+      new import_obsidian11.Notice("No text selected.");
       return;
     }
     snippet = this.sanitizePdfText(snippet);
     const pdfName = view.file.basename;
-    const companionFile = (0, import_obsidian10.normalizePath)(`${(_c = (_b = view.file.parent) == null ? void 0 : _b.path) != null ? _c : ""}/${pdfName} - Highlights.md`);
+    const companionFile = (0, import_obsidian11.normalizePath)(`${(_c = (_b = view.file.parent) == null ? void 0 : _b.path) != null ? _c : ""}/${pdfName} - Highlights.md`);
     const fileExists = this.app.vault.getAbstractFileByPath(companionFile);
     let highlightOutput = snippet.trim();
     if (mode === "color") {
@@ -5240,7 +5318,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
 
 `;
     try {
-      if (fileExists instanceof import_obsidian10.TFile) {
+      if (fileExists instanceof import_obsidian11.TFile) {
         const fileContent = await this.app.vault.read(fileExists);
         await this.app.vault.modify(fileExists, fileContent + "\n" + appendString);
       } else {
@@ -5249,14 +5327,14 @@ var ReadingHighlighterPlugin = class extends import_obsidian10.Plugin {
 ${appendString}`;
         await this.app.vault.create(companionFile, fileContent);
       }
-      new import_obsidian10.Notice("Saved to " + pdfName + " - Highlights");
+      new import_obsidian11.Notice("Saved to " + pdfName + " - Highlights");
       (_d = window.getSelection()) == null ? void 0 : _d.removeAllRanges();
-      if (this.settings.enableHaptics && import_obsidian10.Platform.isMobile) {
+      if (this.settings.enableHaptics && import_obsidian11.Platform.isMobile) {
         (_e = navigator.vibrate) == null ? void 0 : _e.call(navigator, 10);
       }
     } catch (e) {
       console.error("Failed to save PDF highlight", e);
-      new import_obsidian10.Notice("Failed to save PDF highlight");
+      new import_obsidian11.Notice("Failed to save PDF highlight");
     }
   }
   sanitizePdfText(text) {
@@ -5275,12 +5353,12 @@ ${appendString}`;
   }
   async extractAllPdfText(view) {
     if (!view || view.getViewType() !== "pdf" || !view.file) {
-      new import_obsidian10.Notice("Please open a PDF file first.");
+      new import_obsidian11.Notice("Please open a PDF file first.");
       return;
     }
-    const notice = new import_obsidian10.Notice("Extracting all PDF text...", 0);
+    const notice = new import_obsidian11.Notice("Extracting all PDF text...", 0);
     try {
-      const pdfjs = await (0, import_obsidian10.loadPdfJs)();
+      const pdfjs = await (0, import_obsidian11.loadPdfJs)();
       const buffer = await this.app.vault.readBinary(view.file);
       const loadingTask = pdfjs.getDocument({ data: buffer });
       const pdf = await loadingTask.promise;
@@ -5305,17 +5383,17 @@ ${appendString}`;
       const dummySnapshot = { text: fullText, range: null };
       await this.savePdfHighlight(view, dummySnapshot, "action", "highlightSelection");
       notice.hide();
-      new import_obsidian10.Notice(`Successfully extracted ${pdf.numPages} pages.`);
+      new import_obsidian11.Notice(`Successfully extracted ${pdf.numPages} pages.`);
     } catch (e) {
       console.error("Full PDF extraction failed", e);
       notice.hide();
-      new import_obsidian10.Notice("Failed to extract PDF text.");
+      new import_obsidian11.Notice("Failed to extract PDF text.");
     }
   }
   async tagSelection(view, selectionSnapshot) {
     const request = this.buildSelectionRequest(view, selectionSnapshot);
     if (!request) {
-      new import_obsidian10.Notice("No text selected.");
+      new import_obsidian11.Notice("No text selected.");
       return;
     }
     const scrollPos = getScroll(view);
@@ -5346,7 +5424,7 @@ ${appendString}`;
         request.contextKind
       );
       if (!newResult) {
-        new import_obsidian10.Notice("Selection lost - file may have changed.");
+        new import_obsidian11.Notice("Selection lost - file may have changed.");
         return;
       }
       if (tag && this.settings.enableSmartTagSuggestions) {
@@ -5378,7 +5456,7 @@ ${appendString}`;
   async annotateSelection(view, selectionSnapshot) {
     const request = this.buildSelectionRequest(view, selectionSnapshot);
     if (!request) {
-      new import_obsidian10.Notice("No text selected.");
+      new import_obsidian11.Notice("No text selected.");
       return;
     }
     const scrollPos = getScroll(view);
@@ -5409,14 +5487,14 @@ ${appendString}`;
         request.contextKind
       );
       if (!newResult) {
-        new import_obsidian10.Notice("Selection lost - file may have changed.");
+        new import_obsidian11.Notice("Selection lost - file may have changed.");
         return;
       }
       const currentRaw = await this.app.vault.read(targetFile);
       await this.applyAnnotation(targetFile, currentRaw, newResult.start, newResult.end, comment);
       this.restoreScroll(view, scrollPos);
       (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
-      new import_obsidian10.Notice("Annotation added!");
+      new import_obsidian11.Notice("Annotation added!");
     }).open();
   }
   async applyAnnotation(file, raw, start, end, comment) {
@@ -5446,7 +5524,7 @@ ${appendString}`;
     const sel = window.getSelection();
     const request = this.buildSelectionRequest(view, selectionSnapshot);
     if (!request) {
-      new import_obsidian10.Notice("Select highlighted text to remove.");
+      new import_obsidian11.Notice("Select highlighted text to remove.");
       return;
     }
     const scrollPos = getScroll(view);
@@ -5475,7 +5553,7 @@ ${appendString}`;
     const targetFile = result.file;
     await this.saveUndoState(targetFile);
     if (!await this.applyMarkdownModification(targetFile, result.raw, result.start, result.end, "remove")) return;
-    new import_obsidian10.Notice("Highlighting removed.");
+    new import_obsidian11.Notice("Highlighting removed.");
     this.restoreScroll(view, scrollPos);
     sel == null ? void 0 : sel.removeAllRanges();
   }
@@ -5487,111 +5565,111 @@ ${appendString}`;
     const raw = await this.app.vault.read(file);
     const result = removeAllHighlightsFromRaw(raw);
     if (!result.removedCount) {
-      new import_obsidian10.Notice("No highlights to remove.");
+      new import_obsidian11.Notice("No highlights to remove.");
       return;
     }
     await this.app.vault.modify(file, result.raw);
     await this.recordUndoResult(file, result.raw);
-    new import_obsidian10.Notice("All highlights removed.");
+    new import_obsidian11.Notice("All highlights removed.");
   }
   async removeAnnotationById(file, footnoteId) {
     await this.saveUndoState(file);
     const raw = await this.app.vault.read(file);
     const result = removeFootnoteFromRaw(raw, footnoteId);
     if (!result.changed) {
-      new import_obsidian10.Notice("Annotation not found.");
+      new import_obsidian11.Notice("Annotation not found.");
       return;
     }
     await this.app.vault.modify(file, result.raw);
     await this.recordUndoResult(file, result.raw);
-    new import_obsidian10.Notice("Annotation removed.");
+    new import_obsidian11.Notice("Annotation removed.");
   }
   async removeAllAnnotations(file) {
     await this.saveUndoState(file);
     const raw = await this.app.vault.read(file);
     const result = removeAllFootnotesFromRaw(raw);
     if (!result.removedCount) {
-      new import_obsidian10.Notice("No annotations to remove.");
+      new import_obsidian11.Notice("No annotations to remove.");
       return;
     }
     await this.app.vault.modify(file, result.raw);
     await this.recordUndoResult(file, result.raw);
-    new import_obsidian10.Notice(`Removed ${result.removedCount} annotation${result.removedCount === 1 ? "" : "s"}.`);
+    new import_obsidian11.Notice(`Removed ${result.removedCount} annotation${result.removedCount === 1 ? "" : "s"}.`);
   }
   async mergeAdjacentHighlightsInFile(file) {
     await this.saveUndoState(file);
     const raw = await this.app.vault.read(file);
     const result = mergeAdjacentHighlightsInRaw(raw);
     if (!result.mergedCount) {
-      new import_obsidian10.Notice("No adjacent highlights to merge.");
+      new import_obsidian11.Notice("No adjacent highlights to merge.");
       return;
     }
     await this.app.vault.modify(file, result.raw);
     await this.recordUndoResult(file, result.raw);
-    new import_obsidian10.Notice(`Merged ${result.mergedCount} highlight${result.mergedCount === 1 ? "" : "s"}.`);
+    new import_obsidian11.Notice(`Merged ${result.mergedCount} highlight${result.mergedCount === 1 ? "" : "s"}.`);
   }
   async recolorHighlightsInFile(file, from, to) {
     await this.saveUndoState(file);
     const raw = await this.app.vault.read(file);
     const result = recolorHighlightsInRaw(raw, { from, to });
     if (!result.changedCount) {
-      new import_obsidian10.Notice("No matching highlights to recolour.");
+      new import_obsidian11.Notice("No matching highlights to recolour.");
       return;
     }
     await this.app.vault.modify(file, result.raw);
     await this.recordUndoResult(file, result.raw);
-    new import_obsidian10.Notice(`Recoloured ${result.changedCount} highlight${result.changedCount === 1 ? "" : "s"}.`);
+    new import_obsidian11.Notice(`Recoloured ${result.changedCount} highlight${result.changedCount === 1 ? "" : "s"}.`);
   }
   async convertHtmlHighlightsInFile(file) {
     await this.saveUndoState(file);
     const raw = await this.app.vault.read(file);
     const result = convertHtmlHighlightsInRaw(raw);
     if (!result.changedCount) {
-      new import_obsidian10.Notice("No HTML highlights in this note.");
+      new import_obsidian11.Notice("No HTML highlights in this note.");
       return;
     }
     await this.app.vault.modify(file, result.raw);
     await this.recordUndoResult(file, result.raw);
-    new import_obsidian10.Notice(
+    new import_obsidian11.Notice(
       `Converted ${result.changedCount} HTML highlight${result.changedCount === 1 ? "" : "s"} to native highlights.`
     );
   }
   async exportHighlights(view) {
     try {
       const exportPath = await exportHighlightsToMD(this.app, view.file);
-      new import_obsidian10.Notice(`Highlights exported to ${exportPath}`);
+      new import_obsidian11.Notice(`Highlights exported to ${exportPath}`);
       const exportFile = this.app.vault.getAbstractFileByPath(exportPath);
-      if (exportFile instanceof import_obsidian10.TFile) {
+      if (exportFile instanceof import_obsidian11.TFile) {
         await this.app.workspace.getLeaf().openFile(exportFile);
       }
     } catch (err) {
-      new import_obsidian10.Notice("Failed to export highlights.");
+      new import_obsidian11.Notice("Failed to export highlights.");
       console.error(err);
     }
   }
   async exportHighlightsJSON(view) {
     try {
       const exportPath = await exportHighlightsToJSON(this.app, view.file);
-      new import_obsidian10.Notice(`Highlights exported to ${exportPath}`);
+      new import_obsidian11.Notice(`Highlights exported to ${exportPath}`);
       const exportFile = this.app.vault.getAbstractFileByPath(exportPath);
-      if (exportFile instanceof import_obsidian10.TFile) {
+      if (exportFile instanceof import_obsidian11.TFile) {
         await this.app.workspace.getLeaf().openFile(exportFile);
       }
     } catch (err) {
-      new import_obsidian10.Notice("Failed to export highlights to JSON.");
+      new import_obsidian11.Notice("Failed to export highlights to JSON.");
       console.error(err);
     }
   }
   async exportHighlightsCSV(view) {
     try {
       const exportPath = await exportHighlightsToCSV(this.app, view.file);
-      new import_obsidian10.Notice(`Highlights exported to ${exportPath}`);
+      new import_obsidian11.Notice(`Highlights exported to ${exportPath}`);
       const exportFile = this.app.vault.getAbstractFileByPath(exportPath);
-      if (exportFile instanceof import_obsidian10.TFile) {
+      if (exportFile instanceof import_obsidian11.TFile) {
         await this.app.workspace.getLeaf().openFile(exportFile);
       }
     } catch (err) {
-      new import_obsidian10.Notice("Failed to export highlights to CSV.");
+      new import_obsidian11.Notice("Failed to export highlights to CSV.");
       console.error(err);
     }
   }
@@ -5600,17 +5678,17 @@ ${appendString}`;
     const sel = window.getSelection();
     const request = this.buildSelectionRequest(view, selectionSnapshot);
     if (!request) {
-      new import_obsidian10.Notice("No text selected.");
+      new import_obsidian11.Notice("No text selected.");
       return;
     }
     const frontmatter = ((_a = this.app.metadataCache.getFileCache(view.file)) == null ? void 0 : _a.frontmatter) || {};
     const quote = this.expandQuoteTemplate(view.file, request.snippet, frontmatter);
     const copied = await this.writeClipboardText(quote);
     if (!copied) {
-      new import_obsidian10.Notice("Failed to copy quote.");
+      new import_obsidian11.Notice("Failed to copy quote.");
       return;
     }
-    new import_obsidian10.Notice("Copied as quote!");
+    new import_obsidian11.Notice("Copied as quote!");
     sel == null ? void 0 : sel.removeAllRanges();
   }
   async applyColorHighlight(view, color, autoTag = "", selectionSnapshot, toggle = false) {
@@ -5654,7 +5732,7 @@ ${appendString}`;
       return;
     this.restoreScroll(view, scrollPos);
     sel == null ? void 0 : sel.removeAllRanges();
-    new import_obsidian10.Notice("Highlighted!");
+    new import_obsidian11.Notice("Highlighted!");
   }
   /**
    * Note where the active reading view has scrolled to, once it stops.
@@ -5695,9 +5773,9 @@ ${appendString}`;
     const pos = this.settings.readingPositions[view.file.path];
     if (pos) {
       applyScroll(view, { x: 0, y: pos });
-      new import_obsidian10.Notice("Resumed reading position.");
+      new import_obsidian11.Notice("Resumed reading position.");
     } else {
-      new import_obsidian10.Notice("No saved position for this file.");
+      new import_obsidian11.Notice("No saved position for this file.");
     }
   }
   async activateNavigatorView() {
@@ -5870,12 +5948,12 @@ ${prefix}`);
     try {
       newContent = editHighlightRange(raw, start, end, mode, color, fullTag);
     } catch (error) {
-      new import_obsidian10.Notice(error instanceof Error ? error.message : "The selection cannot be highlighted safely.");
+      new import_obsidian11.Notice(error instanceof Error ? error.message : "The selection cannot be highlighted safely.");
       return false;
     }
     const finalContent = await this.app.vault.process(file, (current) => current === raw ? newContent : current);
     if (finalContent !== newContent) {
-      new import_obsidian10.Notice("The note changed while highlighting. Select the text again; those edits were preserved.");
+      new import_obsidian11.Notice("The note changed while highlighting. Select the text again; those edits were preserved.");
       return false;
     }
     const removed = mode === "remove" || mode.startsWith("toggle-") && parseHighlights(newContent).highlights.length < parseHighlights(raw).highlights.length;
@@ -5921,12 +5999,12 @@ ${prefix}`);
   handleSelectionFailure(view, request, actionType, payload = null) {
     var _a;
     if (((_a = request.withinBlock) == null ? void 0 : _a.blockText) !== void 0 || request.range) {
-      new import_obsidian10.Notice("The selection could not be matched exactly. Select the text again; the note was not changed.");
+      new import_obsidian11.Notice("The selection could not be matched exactly. Select the text again; the note was not changed.");
       return;
     }
     const report = this.logic.lastFailureReport;
     if (!report) {
-      new import_obsidian10.Notice("Selection failed, but no diagnostic report was generated.");
+      new import_obsidian11.Notice("Selection failed, but no diagnostic report was generated.");
       return;
     }
     new FailureRecoveryModal(this.app, report, async (correctedText, learnedRule) => {
@@ -5937,7 +6015,7 @@ ${prefix}`);
         if (!existing) {
           this.settings.learnedNormRules.push({ stripPattern: learnedRule.stripPattern });
           await this.saveSettings();
-          new import_obsidian10.Notice("Normalization rule learned for future selections!");
+          new import_obsidian11.Notice("Normalization rule learned for future selections!");
         }
       }
       const mockSnapshot = { text: correctedText, range: null };
@@ -5957,7 +6035,7 @@ ${prefix}`);
 };
 var HIGHLIGHT_COLOUR_DESC = "Colour the highlight button writes, as an Obsidian highlight colour (==\u{1F7E1}text==). Extending a highlight keeps its colour.";
 var PALETTE_DESC = "Show Obsidian's six highlight colours in the toolbar. Highlight colours need Obsidian 1.14 or later; older versions show the colour emoji.";
-var ReadingHighlighterSettingTab = class extends import_obsidian10.PluginSettingTab {
+var ReadingHighlighterSettingTab = class extends import_obsidian11.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -6076,11 +6154,11 @@ var ReadingHighlighterSettingTab = class extends import_obsidian10.PluginSetting
             name: "Clear reading positions",
             desc: `Currently tracking ${Object.keys(s.readingPositions).length} file(s).`,
             action: (el) => {
-              new import_obsidian10.Setting(el).addButton(
+              new import_obsidian11.Setting(el).addButton(
                 (button) => button.setButtonText("Clear all").onClick(async () => {
                   this.plugin.settings.readingPositions = {};
                   await this.plugin.saveSettings();
-                  new import_obsidian10.Notice("Reading positions cleared.");
+                  new import_obsidian11.Notice("Reading positions cleared.");
                   this.refreshDefinitions();
                 })
               );
@@ -6132,17 +6210,48 @@ var ReadingHighlighterSettingTab = class extends import_obsidian10.PluginSetting
       },
       {
         type: "group",
+        heading: "Research view",
+        items: [
+          {
+            name: "Scan when research view opens",
+            desc: "Read notes in the selected folders when opening or restoring research view. Off by default; use Scan folders to start manually.",
+            control: { type: "toggle", key: "researchAutoScan" }
+          },
+          {
+            name: "Include folders",
+            desc: "Vault-relative folder paths, one per line. Includes subfolders. Leave empty to search all Markdown notes. No wildcards or parent paths.",
+            control: {
+              type: "textarea",
+              key: "researchFolders",
+              placeholder: "Research\nReading notes",
+              rows: 3
+            }
+          },
+          {
+            name: "Exclude folders",
+            desc: "Vault-relative folder paths, one per line. Exclusions take priority; notes in these folders are not read or included in research exports.",
+            control: {
+              type: "textarea",
+              key: "researchExcludedFolders",
+              placeholder: "Private\nArchive",
+              rows: 3
+            }
+          }
+        ]
+      },
+      {
+        type: "group",
         heading: "Learned normalization rules",
         items: s.learnedNormRules.length ? [
           ...s.learnedNormRules.map((rule, index) => ({
             name: `Rule ${index + 1}`,
             desc: `Ignore: "${rule.stripPattern}"`,
             action: (el) => {
-              new import_obsidian10.Setting(el).addButton((btn) => {
+              new import_obsidian11.Setting(el).addButton((btn) => {
                 btn.setButtonText("Delete").onClick(async () => {
                   this.plugin.settings.learnedNormRules.splice(index, 1);
                   await this.plugin.saveSettings();
-                  new import_obsidian10.Notice("Rule deleted.");
+                  new import_obsidian11.Notice("Rule deleted.");
                   this.refreshDefinitions();
                 });
                 btn.buttonEl.addClass("mod-warning");
@@ -6152,11 +6261,11 @@ var ReadingHighlighterSettingTab = class extends import_obsidian10.PluginSetting
           {
             name: "Clear all rules",
             action: (el) => {
-              new import_obsidian10.Setting(el).addButton((btn) => {
+              new import_obsidian11.Setting(el).addButton((btn) => {
                 btn.setButtonText("Clear all rules").onClick(async () => {
                   this.plugin.settings.learnedNormRules = [];
                   await this.plugin.saveSettings();
-                  new import_obsidian10.Notice("All rules cleared.");
+                  new import_obsidian11.Notice("All rules cleared.");
                   this.refreshDefinitions();
                 });
                 btn.buttonEl.addClass("mod-warning");

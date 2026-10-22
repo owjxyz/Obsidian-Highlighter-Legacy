@@ -36,11 +36,14 @@ export class ResearchView extends ItemView {
     progressTextEl: HTMLElement | null;
     progressContainer!: HTMLElement;
     propertySelect!: HTMLSelectElement;
+    private scanScope: string;
+    private scanAbort: AbortController | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: ReadingHighlighterPlugin) {
         super(leaf);
         this.plugin = plugin;
         this.scanner = new VaultScanner(plugin.app);
+        this.scanScope = this.scopeKey();
 
         this.scanResults = [];
         this.searchQuery = "";
@@ -68,6 +71,7 @@ export class ResearchView extends ItemView {
     }
 
     async onOpen() {
+        this.registerEvent(this.plugin.app.vault.on("rename", () => this.refreshScanScope(true)));
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
         container.addClass("research-view-container");
@@ -78,11 +82,15 @@ export class ResearchView extends ItemView {
         const titleRow = header.createDiv({ cls: "research-view-title-row" });
         titleRow.createEl("h3", { text: "Research view" });
 
-        const scanBtn = titleRow.createEl("button", { text: "Scan vault", cls: "mod-cta" });
+        const scanBtn = titleRow.createEl("button", { text: "Scan folders", cls: "mod-cta" });
         scanBtn.onclick = () => void this.startScan();
 
         const canvasBtn = titleRow.createEl("button", { text: "Export canvas" });
         canvasBtn.onclick = () => void this.exportToCanvas();
+
+        header.createDiv({
+            text: "Scans the folders selected in plugin settings. An empty include list searches the whole vault; excluded folders are not read.",
+        });
 
         // Search Bar & Date Filter
         const searchContainer = header.createDiv({ cls: "research-view-search" });
@@ -162,25 +170,55 @@ export class ResearchView extends ItemView {
         // Content Area
         this.contentEl = container.createDiv({ cls: "research-view-content" });
 
-        // Auto-scan on open so all highlights display by default
-        void this.startScan();
+        if (this.plugin.settings.researchAutoScan === true) void this.startScan();
+        else this.renderContent();
+    }
+
+    private scopeKey(): string {
+        return JSON.stringify([this.plugin.settings.researchFolders, this.plugin.settings.researchExcludedFolders]);
+    }
+
+    refreshScanScope(force = false) {
+        const scope = this.scopeKey();
+        if (!force && scope === this.scanScope) return;
+        this.scanAbort?.abort();
+        this.scanScope = scope;
+        this.scanResults = [];
+        this.scanner.clearCache();
+        this.contentEl.empty();
+        this.renderContent();
     }
 
     async startScan() {
         if (this.isScanning) return;
 
+        this.refreshScanScope();
+        const scope = this.scanScope;
+        this.scanAbort = new AbortController();
         this.isScanning = true;
         this.progressContainer.setCssStyles({ display: "block" });
         this.contentEl.empty();
 
         try {
-            this.scanResults = await this.scanner.scanVault((current, total, lastFile) => {
-                const percent = Math.round((current / total) * 100);
-                this.progressEl?.setCssStyles({ width: `${percent}%` });
-                if (this.progressTextEl) {
-                    this.progressTextEl.textContent = `Scanning: ${current}/${total} (${percent}%) - ${lastFile}...`;
+            const results = await this.scanner.scanVault(
+                (current, total, lastFile) => {
+                    const percent = Math.round((current / total) * 100);
+                    this.progressEl?.setCssStyles({ width: `${percent}%` });
+                    if (this.progressTextEl) {
+                        this.progressTextEl.textContent = `Scanning: ${current}/${total} (${percent}%) - ${lastFile}...`;
+                    }
+                },
+                {
+                    includeFolders: this.plugin.settings.researchFolders,
+                    excludeFolders: this.plugin.settings.researchExcludedFolders,
+                    signal: this.scanAbort.signal,
                 }
-            });
+            );
+            if (this.scanAbort.signal.aborted || scope !== this.scanScope) {
+                this.scanner.clearCache();
+                return;
+            }
+            this.scanResults = results;
 
             // Collect all property keys
             this.allPropertyKeys.clear();
@@ -197,16 +235,29 @@ export class ResearchView extends ItemView {
                 this.expandedFiles.add(this.scanResults[0].file.path);
             }
         } catch (err) {
+            if (this.scanAbort.signal.aborted) return;
             console.error(err);
+            this.scanResults = [];
+            this.contentEl.empty();
             this.contentEl.createDiv({
                 text: "Error during scan: " + (err instanceof Error ? err.message : String(err)),
                 cls: "research-error",
             });
+            return;
         } finally {
+            const cancelled = this.scanAbort.signal.aborted;
             this.isScanning = false;
             this.progressContainer.setCssStyles({ display: "none" });
-            this.renderContent();
+            if (cancelled || scope !== this.scanScope) this.renderContent();
+            this.scanAbort = null;
         }
+        this.renderContent();
+    }
+
+    async onClose() {
+        this.scanAbort?.abort();
+        this.scanResults = [];
+        this.scanner.clearCache();
     }
 
     updatePropertySelector() {
@@ -273,7 +324,7 @@ export class ResearchView extends ItemView {
         if (this.scanResults.length === 0) {
             this.contentEl.createDiv({
                 cls: "research-empty",
-                text: "No highlights found. Click 'Scan Vault' to analyze.",
+                text: "No highlights to show. Click 'Scan folders' to search the selected folders.",
             });
             return;
         }

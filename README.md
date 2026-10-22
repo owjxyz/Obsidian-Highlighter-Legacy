@@ -47,6 +47,20 @@ Toolbar colour buttons recolour only the selected part. The remove button and re
 
 Tags, footnote annotations, highlight navigation, exports, and reading progress are retained from the original plugin.
 
+## Research view and data access
+
+- Research view does not scan on opening or workspace restore by default. Use **Scan folders** to start, or enable **Scan when research view opens** in the plugin's **Research view** settings.
+- **Include folders** and **Exclude folders** accept vault-relative folder paths, one per line, including subfolders. Leave the include list empty to search all Markdown notes. Exclusions take priority; wildcards, absolute paths, `.` and `..` are not supported.
+- Research search lists Markdown file paths in the vault, but reads note contents only within the selected scope. Results and their cache stay in memory. Changing the folder scope clears the research results; an unfinished scan cannot restore results from the old scope.
+- Copy commands write the requested quote, highlight, or annotation to the system clipboard. The plugin does not read existing clipboard contents.
+- The plugin does not send note contents, file paths, or clipboard contents to a server. Export commands write the requested Markdown, JSON, CSV, or Canvas files locally in the vault.
+
+## Release verification
+
+The release workflow builds and tests a tagged version in GitHub Actions, checks its committed checksums, and generates GitHub artifact attestations for `main.js`, `manifest.json`, and `styles.css`. Those same files are used to prepare a release draft; publishing remains a separate, deliberate step. Manually running **Verify release provenance** builds and attests the selected ref without creating a release when that ref is a branch.
+
+For a release produced by this workflow, download its assets and verify their build provenance with `gh attestation verify main.js --repo owjxyz/Obsidian-Superier-Highlighter` (repeat for `manifest.json` and `styles.css`). `SHA256SUMS` remains an extra release asset for the terminal installer; Obsidian does not download it. Existing releases are not changed by adding the workflow.
+
 ## Develop
 
 Requires Node.js and Python:

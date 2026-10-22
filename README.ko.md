@@ -47,6 +47,20 @@ curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highlighte
 
 원본 플러그인의 태그, 각주 주석, 하이라이트 탐색·내보내기, 읽기 위치 기능도 제공합니다.
 
+## Research view와 데이터 접근
+
+- Research view를 열거나 작업 공간을 복원해도 기본적으로 자동 검사하지 않습니다. **Scan folders**를 눌러 시작하거나 플러그인 설정의 **Research view → Scan when research view opens**를 켭니다.
+- **Include folders**와 **Exclude folders**에 보관함 기준 상대 폴더 경로를 한 줄에 하나씩 입력합니다. 하위 폴더도 포함하며, 포함 목록을 비우면 모든 Markdown 노트가 대상입니다. 제외 목록이 우선합니다. 와일드카드, 절대 경로, `.`과 `..`은 지원하지 않습니다.
+- 검색 시 보관함의 Markdown 파일 경로 목록을 조회하지만, 노트 본문은 설정한 범위에서만 읽습니다. 검색 결과와 캐시는 메모리에만 유지합니다. 폴더 범위를 바꾸면 검색 결과를 비우고, 진행 중이던 검사가 이전 범위의 결과를 되살리지 않도록 합니다.
+- 복사 명령을 실행하면 요청한 인용문·하이라이트·각주 주석을 시스템 클립보드에 씁니다. 기존 클립보드 내용은 읽지 않습니다.
+- 플러그인은 노트 본문·파일 경로·클립보드 내용을 서버로 전송하지 않습니다. 내보내기 명령은 요청한 Markdown·JSON·CSV·Canvas 파일을 보관함 안에 저장합니다.
+
+## 배포 검증
+
+릴리즈 자동화는 GitHub Actions에서 태그의 소스를 빌드·검사하고, 저장소에 기록된 체크섬을 확인한 뒤 `main.js`, `manifest.json`, `styles.css`의 빌드 출처 증명(GitHub artifact attestations)을 생성합니다. 같은 파일로 릴리즈 초안을 준비하며, 정식 공개는 별도로 진행합니다. **Verify release provenance**를 브랜치에서 수동 실행하면 빌드와 출처 증명만 수행하고 릴리즈는 생성하지 않습니다.
+
+이 자동화로 만든 배포 파일을 내려받은 뒤 `gh attestation verify main.js --repo owjxyz/Obsidian-Superier-Highlighter`로 출처를 검증할 수 있습니다(`manifest.json`, `styles.css`도 동일). `SHA256SUMS`는 터미널 설치 프로그램의 무결성 검증에 필요하므로 추가 배포 파일로 유지합니다. Obsidian은 이 파일을 내려받지 않습니다. 자동화 추가만으로 기존 릴리즈가 변경되지는 않습니다.
+
 ## 개발
 
 Node.js와 Python이 필요합니다.

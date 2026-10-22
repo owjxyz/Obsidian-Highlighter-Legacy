@@ -88,6 +88,9 @@ interface ReadingHighlighterSettings {
     frontmatterTag: string;
     enableSmartParagraphSelection: boolean;
     learnedNormRules: LearnedNormRule[];
+    researchAutoScan: boolean;
+    researchFolders: string;
+    researchExcludedFolders: string;
 }
 
 const SMART_SELECTION_TAGS = new Set(["P", "LI", "BLOCKQUOTE", "PRE", "H1", "H2", "H3", "H4", "H5", "H6", "TD", "TH"]);
@@ -120,6 +123,9 @@ const DEFAULT_SETTINGS: ReadingHighlighterSettings = {
     frontmatterTag: "resaltados",
     enableSmartParagraphSelection: false,
     learnedNormRules: [],
+    researchAutoScan: false,
+    researchFolders: "",
+    researchExcludedFolders: "",
 };
 
 /**
@@ -516,6 +522,9 @@ export default class ReadingHighlighterPlugin extends Plugin {
     }
 
     async saveSettings() {
+        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_VIEW)) {
+            (leaf.view as ResearchView).refreshScanScope();
+        }
         await this.saveData(this.settings);
         this.floatingManager.refresh();
     }
@@ -1902,6 +1911,37 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
                         desc: "The tag to add (e.g. 'resaltados'). Do not include the # symbol.",
                         visible: () => this.plugin.settings.enableFrontmatterTag,
                         control: { type: "text", key: "frontmatterTag", placeholder: "Resaltados" },
+                    },
+                ],
+            },
+            {
+                type: "group",
+                heading: "Research view",
+                items: [
+                    {
+                        name: "Scan when research view opens",
+                        desc: "Read notes in the selected folders when opening or restoring research view. Off by default; use Scan folders to start manually.",
+                        control: { type: "toggle", key: "researchAutoScan" },
+                    },
+                    {
+                        name: "Include folders",
+                        desc: "Vault-relative folder paths, one per line. Includes subfolders. Leave empty to search all Markdown notes. No wildcards or parent paths.",
+                        control: {
+                            type: "textarea",
+                            key: "researchFolders",
+                            placeholder: "Research\nReading notes",
+                            rows: 3,
+                        },
+                    },
+                    {
+                        name: "Exclude folders",
+                        desc: "Vault-relative folder paths, one per line. Exclusions take priority; notes in these folders are not read or included in research exports.",
+                        control: {
+                            type: "textarea",
+                            key: "researchExcludedFolders",
+                            placeholder: "Private\nArchive",
+                            rows: 3,
+                        },
                     },
                 ],
             },
