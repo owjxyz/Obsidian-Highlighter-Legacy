@@ -1,6 +1,6 @@
 {
     "name": "superier-highlighter",
-    "version": "0.0.3",
+    "version": "0.1.0",
     "description": "Highlight exact selections in Reading View using surrounding context and native colours.",
     "main": "main.js",
     "scripts": {
