@@ -7,6 +7,7 @@ import {
     Setting,
     MarkdownView,
     TFile,
+    type Command,
     type SettingDefinitionItem,
     type SettingGroupItem,
 } from "obsidian";
@@ -69,11 +70,11 @@ interface ReadingHighlighterSettings {
 const SMART_SELECTION_TAGS = new Set(["P", "LI", "BLOCKQUOTE", "PRE", "H1", "H2", "H3", "H4", "H5", "H6", "TD", "TH"]);
 
 const DEFAULT_SETTINGS: ReadingHighlighterSettings = {
-    toolbarPosition: "right",
+    toolbarPosition: "text",
     defaultHighlightColor: "",
     enableHaptics: true,
     showRemoveButton: true,
-    enableColorPalette: false,
+    enableColorPalette: true,
     showOnlyAssignedColors: true,
     semanticColors: HIGHLIGHT_COLORS.map((color) => ({ color, meaning: "" })),
     showNavigatorButton: true,
@@ -162,7 +163,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
             this.register(() => btn.remove());
         }
 
-        this.addRibbonIcon("lamp", "Highlight navigator", () => {
+        this.addRibbonIcon("highlighter", "Highlight navigator", () => {
             void this.activateNavigatorView();
         });
 
@@ -172,8 +173,9 @@ export default class ReadingHighlighterPlugin extends Plugin {
     registerCommands() {
         this.addCommand({
             id: "highlight-selection-reading",
-            name: "Toggle highlight selection (reading view)",
+            name: "Toggle highlight selection",
             checkCallback: (checking) => {
+                if (this.checkEditorHighlight(checking)) return true;
                 const view = this.getActiveReadingView();
                 if (!view) return false;
                 if (checking) return true;
@@ -265,6 +267,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
                 id: `apply-color-${i + 1}`,
                 name: `Toggle ${COLOR_LABELS[color].toLowerCase()} highlight`,
                 checkCallback: (checking) => {
+                    if (this.checkEditorHighlight(checking, color)) return true;
                     const view = this.getActiveReadingView();
                     if (!view) return false;
                     if (checking) return true;
@@ -273,6 +276,15 @@ export default class ReadingHighlighterPlugin extends Plugin {
                 },
             });
         });
+    }
+
+    checkEditorHighlight(checking: boolean, color?: HighlightColor): boolean {
+        // Obsidian wraps native editor commands with its own mode and focus checks.
+        const { commands } = this.app as App & {
+            commands?: { findCommand(id: string): Command | undefined };
+        };
+        const id = color ? `editor:toggle-highlight-${color}` : "editor:toggle-highlight";
+        return !!commands?.findCommand(id)?.checkCallback?.(checking);
     }
 
     onunload() {
@@ -314,13 +326,34 @@ export default class ReadingHighlighterPlugin extends Plugin {
         return view && view.getMode() === "preview" ? view : null;
     }
 
+    getSelectionScope(view: MarkdownView, node: Node) {
+        if (view.contentEl.contains(node)) return { root: view.contentEl, footnoteId: undefined };
+        for (const popover of [view.previewMode?.hoverPopover, view.hoverPopover]) {
+            // Page Preview owns the embed; only accept a reading preview of this note's footnote.
+            const embed = (popover as typeof popover & { embed?: MarkdownView & { subpath?: string } })?.embed;
+            const footnoteId = embed?.subpath?.match(/^#\[\^([^\]]+)\]$/)?.[1];
+            if (
+                footnoteId &&
+                embed?.file?.path === view.file?.path &&
+                embed.getMode() === "preview" &&
+                popover?.hoverEl.contains(node) &&
+                embed.containerEl.contains(node)
+            ) {
+                return { root: embed.containerEl, footnoteId };
+            }
+        }
+        return null;
+    }
+
     getSelectionContext(selectionSnapshot: SelectionSnapshot | null) {
         const view = this.getActiveReadingView();
         const range = this.getSelectionRange(selectionSnapshot);
         if (!view || !range) return null;
 
-        const blocks = this.getAllowedBlocksInRange(range, view.contentEl);
-        const fallbackBlock = this.getClosestAllowedBlock(range.commonAncestorContainer, view.contentEl);
+        const scope = this.getSelectionScope(view, range.commonAncestorContainer);
+        if (!scope) return null;
+        const blocks = this.getAllowedBlocksInRange(range, scope.root);
+        const fallbackBlock = this.getClosestAllowedBlock(range.commonAncestorContainer, scope.root);
         const contextElement = blocks[0] || fallbackBlock || null;
         const rawSnippet = selectionSnapshot?.text || window.getSelection()?.toString() || "";
 
@@ -440,8 +473,11 @@ export default class ReadingHighlighterPlugin extends Plugin {
 
     getSelectionOccurrence(view: MarkdownView, contextElement: HTMLElement | null, hint?: SelectionHint | null) {
         if (!contextElement) return 0;
+        const scope = this.getSelectionScope(view, contextElement);
+        if (!scope) return -1;
+        if (hint && scope.footnoteId) hint.footnoteId = scope.footnoteId;
         const contextText = this.getElementText(contextElement);
-        const matching = [...view.contentEl.querySelectorAll<HTMLElement>(contextElement.tagName.toLowerCase())].filter(
+        const matching = [...scope.root.querySelectorAll<HTMLElement>(contextElement.tagName.toLowerCase())].filter(
             (element) => this.getElementText(element) === contextText
         );
         if (hint) hint.blockTotal = matching.length;
@@ -958,11 +994,11 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
                             type: "dropdown",
                             key: "toolbarPosition",
                             options: {
-                                text: "Next to text",
+                                text: "Above the Text (default)",
                                 top: "Fixed at top center",
                                 bottom: "Fixed at bottom center",
                                 left: "Fixed left side",
-                                right: "Fixed right side (default)",
+                                right: "Fixed right side",
                             },
                         },
                     },

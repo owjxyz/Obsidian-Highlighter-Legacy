@@ -154,6 +154,8 @@ export interface SelectionHint {
     selected?: string;
     blockText?: string;
     blockTotal?: number;
+    /** Restrict hover-preview matches to this footnote in the active note. */
+    footnoteId?: string;
 }
 
 /**

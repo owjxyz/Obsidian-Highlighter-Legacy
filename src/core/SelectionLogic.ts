@@ -214,6 +214,26 @@ export class SelectionLogic {
         }
 
         const activeFile = view.file;
+        if (withinBlock?.footnoteId) {
+            const raw = await this.app.vault.read(activeFile);
+            const footnotes = this.app.metadataCache
+                .getFileCache(activeFile)
+                ?.footnotes?.filter((footnote) => footnote.id === withinBlock.footnoteId);
+            if (footnotes?.length !== 1) return null;
+            const { start, end } = footnotes[0].position;
+            const source = raw.slice(start.offset, end.offset);
+            // A stale cache must not direct an edit into another footnote or the body.
+            if (source.match(/^\[\^([^\]]+)\]:/)?.[1] !== withinBlock.footnoteId) return null;
+            const virtual = this.applyStructuralFilter(
+                {
+                    text: source,
+                    segments: [{ vStart: 0, vEnd: source.length, file: activeFile, pOffset: start.offset, raw }],
+                },
+                raw
+            );
+            const anchored = locateAnchoredSelection(virtual.text, withinBlock, occurrenceIndex, contextKind);
+            return anchored ? this.mapVirtualToPhysical(anchored.start, anchored.end, virtual.segments) : null;
+        }
         const opContext: OpContext = { cache: new Map(), visited: new Set<string>() };
         const virtual = await this.resolveVirtualContent(activeFile, 0, opContext);
         const fullRaw = virtual.text;
@@ -558,8 +578,8 @@ export class SelectionLogic {
 
     // Structural Filtering Engine (Noise Shield)
     // Computationally strips invisible markdown syntax while keeping offsets perfectly mapped
-    applyStructuralFilter({ text, segments }: Virtual): Virtual {
-        const definedFootnotes = new Set([...text.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
+    applyStructuralFilter({ text, segments }: Virtual, footnoteSource = text): Virtual {
+        const definedFootnotes = new Set([...footnoteSource.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
         const footnoteRefs = /\[\^[^\]]+\](?!:)/g;
         const patterns = [
             // Images have no selectable caption; remove them before stripping link destinations.

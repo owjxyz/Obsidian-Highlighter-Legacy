@@ -307,10 +307,9 @@ export class FloatingManager {
         const sel = window.getSelection();
         const snippet = sel?.toString() ?? "";
 
-        // Only a selection inside the note itself. Text selected in a hover
-        // preview, the sidebar or a dialog belongs to something else, and
-        // highlighting it would go looking for it in this note.
-        const inView = !!sel?.anchorNode && view.containerEl.contains(sel.anchorNode);
+        // Include this note's footnote preview, but never arbitrary hover previews.
+        const scope = sel?.anchorNode && this.plugin.getSelectionScope(view, sel.anchorNode);
+        const inView = !!scope && !!sel?.focusNode && scope.root.contains(sel.focusNode);
 
         if (inView && snippet.trim() && sel && !sel.isCollapsed && sel.rangeCount > 0) {
             // Guard: never show the toolbar inside code blocks, and never while

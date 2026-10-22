@@ -388,7 +388,8 @@ var FloatingManager = class {
     }
     const sel = window.getSelection();
     const snippet = (_a = sel == null ? void 0 : sel.toString()) != null ? _a : "";
-    const inView = !!(sel == null ? void 0 : sel.anchorNode) && view.containerEl.contains(sel.anchorNode);
+    const scope = (sel == null ? void 0 : sel.anchorNode) && this.plugin.getSelectionScope(view, sel.anchorNode);
+    const inView = !!scope && !!(sel == null ? void 0 : sel.focusNode) && scope.root.contains(sel.focusNode);
     if (inView && snippet.trim() && sel && !sel.isCollapsed && sel.rangeCount > 0) {
       if (activeDocument.querySelector(".modal-container, .modal-bg")) {
         this.hide();
@@ -707,6 +708,7 @@ var SelectionLogic = class {
     return results;
   }
   async locateSelection(processedFile, view, selectionSnippet, context = null, occurrenceIndex = 0, withinBlock = null, contextKind = null) {
+    var _a, _b, _c;
     this.lastFailureReport = null;
     let snippet = this.stripBrowserJunk(selectionSnippet);
     if (!snippet) {
@@ -730,6 +732,23 @@ var SelectionLogic = class {
       snippet = snippet.trim();
     }
     const activeFile = view.file;
+    if (withinBlock == null ? void 0 : withinBlock.footnoteId) {
+      const raw = await this.app.vault.read(activeFile);
+      const footnotes = (_b = (_a = this.app.metadataCache.getFileCache(activeFile)) == null ? void 0 : _a.footnotes) == null ? void 0 : _b.filter((footnote) => footnote.id === withinBlock.footnoteId);
+      if ((footnotes == null ? void 0 : footnotes.length) !== 1) return null;
+      const { start, end } = footnotes[0].position;
+      const source = raw.slice(start.offset, end.offset);
+      if (((_c = source.match(/^\[\^([^\]]+)\]:/)) == null ? void 0 : _c[1]) !== withinBlock.footnoteId) return null;
+      const virtual2 = this.applyStructuralFilter(
+        {
+          text: source,
+          segments: [{ vStart: 0, vEnd: source.length, file: activeFile, pOffset: start.offset, raw }]
+        },
+        raw
+      );
+      const anchored = locateAnchoredSelection(virtual2.text, withinBlock, occurrenceIndex, contextKind);
+      return anchored ? this.mapVirtualToPhysical(anchored.start, anchored.end, virtual2.segments) : null;
+    }
     const opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
     const virtual = await this.resolveVirtualContent(activeFile, 0, opContext);
     const fullRaw = virtual.text;
@@ -1003,8 +1022,8 @@ var SelectionLogic = class {
   }
   // Structural Filtering Engine (Noise Shield)
   // Computationally strips invisible markdown syntax while keeping offsets perfectly mapped
-  applyStructuralFilter({ text, segments }) {
-    const definedFootnotes = new Set([...text.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
+  applyStructuralFilter({ text, segments }, footnoteSource = text) {
+    const definedFootnotes = new Set([...footnoteSource.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
     const footnoteRefs = /\[\^[^\]]+\](?!:)/g;
     const patterns = [
       // Images have no selectable caption; remove them before stripping link destinations.
@@ -2415,7 +2434,7 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
     return "Highlights";
   }
   getIcon() {
-    return "lamp";
+    return "highlighter";
   }
   async onOpen() {
     const container = this.containerEl.children[1];
@@ -3047,11 +3066,11 @@ function editHighlightRange(raw, start, end, mode, color) {
 // src/main.ts
 var SMART_SELECTION_TAGS = /* @__PURE__ */ new Set(["P", "LI", "BLOCKQUOTE", "PRE", "H1", "H2", "H3", "H4", "H5", "H6", "TD", "TH"]);
 var DEFAULT_SETTINGS = {
-  toolbarPosition: "right",
+  toolbarPosition: "text",
   defaultHighlightColor: "",
   enableHaptics: true,
   showRemoveButton: true,
-  enableColorPalette: false,
+  enableColorPalette: true,
   showOnlyAssignedColors: true,
   semanticColors: HIGHLIGHT_COLORS.map((color) => ({ color, meaning: "" })),
   showNavigatorButton: true,
@@ -3104,7 +3123,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
       });
       this.register(() => btn.remove());
     }
-    this.addRibbonIcon("lamp", "Highlight navigator", () => {
+    this.addRibbonIcon("highlighter", "Highlight navigator", () => {
       void this.activateNavigatorView();
     });
     this.floatingManager.load();
@@ -3112,8 +3131,9 @@ var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
   registerCommands() {
     this.addCommand({
       id: "highlight-selection-reading",
-      name: "Toggle highlight selection (reading view)",
+      name: "Toggle highlight selection",
       checkCallback: (checking) => {
+        if (this.checkEditorHighlight(checking)) return true;
         const view = this.getActiveReadingView();
         if (!view) return false;
         if (checking) return true;
@@ -3195,6 +3215,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
         id: `apply-color-${i + 1}`,
         name: `Toggle ${COLOR_LABELS[color].toLowerCase()} highlight`,
         checkCallback: (checking) => {
+          if (this.checkEditorHighlight(checking, color)) return true;
           const view = this.getActiveReadingView();
           if (!view) return false;
           if (checking) return true;
@@ -3203,6 +3224,12 @@ var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
         }
       });
     });
+  }
+  checkEditorHighlight(checking, color) {
+    var _a, _b;
+    const { commands } = this.app;
+    const id = color ? `editor:toggle-highlight-${color}` : "editor:toggle-highlight";
+    return !!((_b = (_a = commands == null ? void 0 : commands.findCommand(id)) == null ? void 0 : _a.checkCallback) == null ? void 0 : _b.call(_a, checking));
   }
   onunload() {
     this.floatingManager.unload();
@@ -3235,13 +3262,27 @@ var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
     const view = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     return view && view.getMode() === "preview" ? view : null;
   }
+  getSelectionScope(view, node) {
+    var _a, _b, _c, _d, _e;
+    if (view.contentEl.contains(node)) return { root: view.contentEl, footnoteId: void 0 };
+    for (const popover of [(_a = view.previewMode) == null ? void 0 : _a.hoverPopover, view.hoverPopover]) {
+      const embed = popover == null ? void 0 : popover.embed;
+      const footnoteId = (_c = (_b = embed == null ? void 0 : embed.subpath) == null ? void 0 : _b.match(/^#\[\^([^\]]+)\]$/)) == null ? void 0 : _c[1];
+      if (footnoteId && ((_d = embed == null ? void 0 : embed.file) == null ? void 0 : _d.path) === ((_e = view.file) == null ? void 0 : _e.path) && embed.getMode() === "preview" && (popover == null ? void 0 : popover.hoverEl.contains(node)) && embed.containerEl.contains(node)) {
+        return { root: embed.containerEl, footnoteId };
+      }
+    }
+    return null;
+  }
   getSelectionContext(selectionSnapshot) {
     var _a;
     const view = this.getActiveReadingView();
     const range = this.getSelectionRange(selectionSnapshot);
     if (!view || !range) return null;
-    const blocks = this.getAllowedBlocksInRange(range, view.contentEl);
-    const fallbackBlock = this.getClosestAllowedBlock(range.commonAncestorContainer, view.contentEl);
+    const scope = this.getSelectionScope(view, range.commonAncestorContainer);
+    if (!scope) return null;
+    const blocks = this.getAllowedBlocksInRange(range, scope.root);
+    const fallbackBlock = this.getClosestAllowedBlock(range.commonAncestorContainer, scope.root);
     const contextElement = blocks[0] || fallbackBlock || null;
     const rawSnippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || ((_a = window.getSelection()) == null ? void 0 : _a.toString()) || "";
     let snippet = rawSnippet;
@@ -3343,8 +3384,11 @@ var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
   }
   getSelectionOccurrence(view, contextElement, hint) {
     if (!contextElement) return 0;
+    const scope = this.getSelectionScope(view, contextElement);
+    if (!scope) return -1;
+    if (hint && scope.footnoteId) hint.footnoteId = scope.footnoteId;
     const contextText = this.getElementText(contextElement);
-    const matching = [...view.contentEl.querySelectorAll(contextElement.tagName.toLowerCase())].filter(
+    const matching = [...scope.root.querySelectorAll(contextElement.tagName.toLowerCase())].filter(
       (element) => this.getElementText(element) === contextText
     );
     if (hint) hint.blockTotal = matching.length;
@@ -3785,11 +3829,11 @@ var ReadingHighlighterSettingTab = class extends import_obsidian6.PluginSettingT
               type: "dropdown",
               key: "toolbarPosition",
               options: {
-                text: "Next to text",
+                text: "Above the Text (default)",
                 top: "Fixed at top center",
                 bottom: "Fixed at bottom center",
                 left: "Fixed left side",
-                right: "Fixed right side (default)"
+                right: "Fixed right side"
               }
             }
           },
