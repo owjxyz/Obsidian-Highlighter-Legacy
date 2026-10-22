@@ -33,7 +33,9 @@ Manual installation: download `main.js`, `manifest.json`, and `styles.css` from 
 
 Assign your preferred keys to colour and removal commands in **Settings → Hotkeys → Superier Highlighter**. Select text in Reading View and press the assigned shortcut.
 
-**Repeat a highlight shortcut:** if an existing highlight contains the selection, its entire highlight and colour marker are removed. Otherwise the shortcut highlights the selection. This also works per line or cell in a multi-line selection.
+**Colour highlight shortcuts:** if a highlight contains the selection and already has the requested colour, the entire highlight is removed. A different colour recolours only the selection, keeping surrounding colours intact. Unhighlighted text receives the requested colour. This rule applies separately to each selected line or cell.
+
+The generic highlight toggle shortcut removes a containing highlight regardless of its colour, or highlights the selection if none contains it.
 
 Toolbar colour buttons recolour only the selected part. The remove button and removal command erase only the selected part, keeping surrounding highlights intact.
 

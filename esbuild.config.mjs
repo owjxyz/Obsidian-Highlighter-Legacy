@@ -43,7 +43,7 @@ const context = await esbuild.context({
     allowOverwrite: true,
 });
 
-if (prod) {
+if (prod && !process.argv.includes("--watch")) {
     await context.rebuild();
     mkdirSync("build", { recursive: true });
     for (const file of ["main.js", "manifest.json", "styles.css"]) copyFileSync(file, `build/${file}`);

@@ -184,10 +184,71 @@ describe("precise Reading View selection", () => {
     });
 
     it("removes a containing highlight and its colour when its shortcut is repeated", async () => {
-        const ctx = await setup("==🟡alpha beta gamma==", "<p><mark>alpha beta gamma</mark></p>");
+        const ctx = await setup("==🔴alpha beta gamma==", "<p><mark>alpha beta gamma</mark></p>");
         const snapshot = selection(ctx, textNodes(ctx.content)[0], 6);
         await ctx.plugin.applyColorByIndex(ctx.view, 0, snapshot, true);
         expect(ctx.out()).toBe("alpha beta gamma");
+    });
+
+    const shortcutColours = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣"];
+    it.each(shortcutColours.flatMap((old, i) => shortcutColours.map((next, j) => [old, next, i === j, j])))(
+        "changes %s to %s within the selection, or removes it when the colours match",
+        async (old, next, same, index) => {
+            const raw = `==${old}alpha beta gamma==`;
+            const ctx = await setup(raw, "<p><mark>alpha beta gamma</mark></p>");
+            await ctx.plugin.applyColorByIndex(ctx.view, index, selection(ctx, textNodes(ctx.content)[0], 6), true);
+            expect(ctx.out()).toBe(same ? "alpha beta gamma" : `==${old}alpha== ==${next}beta== ==${old}gamma==`);
+            await ctx.plugin.undoLastHighlight();
+            expect(ctx.out()).toBe(raw);
+        }
+    );
+
+    it("recolours a complete highlight with a different shortcut colour", async () => {
+        const ctx = await setup("==🟡alpha beta gamma==", "<p><mark>alpha beta gamma</mark></p>");
+        const node = textNodes(ctx.content)[0];
+        await ctx.plugin.applyColorByIndex(ctx.view, 0, selection(ctx, node, 0, node, 16), true);
+        expect(ctx.out()).toBe("==🔴alpha beta gamma==");
+    });
+
+    it.each(["==alpha beta gamma==", '<mark style="background: yellow">alpha beta gamma</mark>'])(
+        "recolours the selected part of a default or HTML highlight: %s",
+        async (raw) => {
+            const ctx = await setup(raw, "<p><mark>alpha beta gamma</mark></p>");
+            await ctx.plugin.applyColorByIndex(ctx.view, 0, selection(ctx, textNodes(ctx.content)[0], 6), true);
+            const old = raw.startsWith("==") ? "" : "🟡";
+            expect(ctx.out()).toBe(`==${old}alpha== ==🔴beta== ==${old}gamma==`);
+        }
+    );
+
+    it("keeps the generic highlight shortcut's removal behaviour regardless of colour", async () => {
+        const ctx = await setup("==🟡alpha beta gamma==", "<p><mark>alpha beta gamma</mark></p>");
+        await ctx.plugin.highlightSelection(ctx.view, selection(ctx, textNodes(ctx.content)[0], 6), true);
+        expect(ctx.out()).toBe("alpha beta gamma");
+    });
+
+    it("recolours other colours and removes the requested colour across multiple lines", async () => {
+        const ctx = await setup(
+            "==🟡alpha==\n==🔴beta==\ngamma",
+            "<p><mark>alpha</mark><br><mark>beta</mark><br>gamma</p>"
+        );
+        const nodes = textNodes(ctx.content);
+        await ctx.plugin.applyColorByIndex(ctx.view, 0, selection(ctx, nodes[0], 0, nodes[2], 5), true);
+        expect(ctx.out()).toBe("==🔴alpha==\nbeta\n==🔴gamma==");
+    });
+
+    it("applies the colour comparison separately in each selected table cell", async () => {
+        const ctx = await setup(
+            "| A | B | C |\n| --- | --- | --- |\n| ==🟡alpha== | ==🔴beta== | gamma |",
+            "<table><thead><tr><th>A</th><th>B</th><th>C</th></tr></thead><tbody><tr><td><mark>alpha</mark></td><td><mark>beta</mark></td><td>gamma</td></tr></tbody></table>"
+        );
+        const cells = ctx.content.querySelectorAll("td");
+        await ctx.plugin.applyColorByIndex(
+            ctx.view,
+            0,
+            selection(ctx, cells[0].firstChild.firstChild, 0, cells[2].firstChild, 5),
+            true
+        );
+        expect(ctx.out()).toBe("| A | B | C |\n| --- | --- | --- |\n| ==🔴alpha== | beta | ==🔴gamma== |");
     });
 
     it("applies a shortcut colour when the selection has no containing highlight", async () => {

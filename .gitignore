@@ -152,3 +152,7 @@ build/
 # Python installer test cache
 __pycache__/
 *.pyc
+
+# Local Obsidian test Vault settings
+data.json
+.hotreload

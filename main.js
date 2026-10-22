@@ -2933,7 +2933,7 @@ function wrapSelected(text, color) {
 function rewriteSpan(text, start, end, mode, color) {
   if (mode.startsWith("toggle-")) {
     const containing = parseHighlights(text).highlights.find((h) => h.start <= start && h.end >= end);
-    if (containing)
+    if (containing && (mode === "toggle-highlight" || containing.color === color))
       return text.slice(0, containing.start) + text.slice(containing.innerStart, containing.innerEnd) + text.slice(containing.end);
     mode = mode === "toggle-color" ? "color" : "highlight";
   }
