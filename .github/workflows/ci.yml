@@ -17,4 +17,5 @@ jobs:
       - run: npm test
       - run: python3 test_install.py
       - run: npm run build
+      - run: python3 test_metadata.py
       - run: sha256sum -c SHA256SUMS

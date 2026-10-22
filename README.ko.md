@@ -2,11 +2,17 @@
 
 Obsidian 읽기 보기에서 선택한 부분을 정확하게 하이라이트합니다. 선택한 텍스트와 앞뒤 문맥을 함께 대조하고, `==🔴텍스트==` 형식으로 저장합니다.
 
-**개발자:** [owjxyz](https://github.com/owjxyz)
+**개발자:** [WooJIN OH (owjxyz)](https://github.com/owjxyz)
+
+[GitHub 저장소](https://github.com/owjxyz/Obsidian-Superier-Highlighter) · [Obsidian 커뮤니티 등록 페이지](https://obsidian.md/plugins?id=superier-highlighter)
 
 [ENGLISH](README.md)
 
 ## 설치
+
+Obsidian의 **설정 → 커뮤니티 플러그인 → 탐색**에서 **WooJIN OH**의 **Superier Highlighter**를 검색한 뒤 설치하고 활성화합니다. [커뮤니티 등록 페이지](https://obsidian.md/plugins?id=superier-highlighter)에서도 열 수 있습니다.
+
+터미널 설치 프로그램을 사용하려면 아래 절차를 따릅니다.
 
 Obsidian을 종료하고 대상 vault 폴더에서 실행합니다.
 
@@ -21,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highlighte
 - 이미 설치된 Superier Highlighter의 설정은 보존합니다.
 - 스크립트를 실행할 때 업데이트하며, 상시 자동 업데이트는 등록하지 않습니다. 시험 배포는 제외하고 조회·검증에 실패하면 보관함을 변경하지 않습니다.
 
-수동 설치는 [최신 배포](https://github.com/owjxyz/Obsidian-Superier-Highlighter/releases/latest)에서 `main.js`, `manifest.json`, `styles.css`를 받아 `.obsidian/plugins/superier-highlighter/`에 넣고 활성화합니다. 앱 내 커뮤니티 플러그인 설치는 Obsidian의 등록 승인 후 가능합니다.
+수동 설치는 [최신 배포](https://github.com/owjxyz/Obsidian-Superier-Highlighter/releases/latest)에서 `main.js`, `manifest.json`, `styles.css`를 받아 `.obsidian/plugins/superier-highlighter/`에 넣고 활성화합니다.
 
 ## 단축키
 
@@ -50,9 +56,10 @@ npm ci
 npm test
 npm run typecheck
 npm run build
+python3 test_metadata.py
 python3 test_install.py
 ```
 
 ## 원본
 
-DuckTapeKiller의 [Reader Highlighter Tags](https://github.com/DuckTapeKiller/obsidian-reader-highlighter-tags)를 바탕으로 만든 독립 개선판입니다. 원본의 [MIT 라이선스](LICENSE)와 저작권 고지를 유지합니다. 개선판 개발자는 owjxyz입니다.
+DuckTapeKiller의 [Reader Highlighter Tags](https://github.com/DuckTapeKiller/obsidian-reader-highlighter-tags)를 바탕으로 만든 독립 개선판입니다. 원본의 [MIT 라이선스](LICENSE)와 저작권 고지를 유지합니다. 개선판 개발자는 WooJIN OH (owjxyz)입니다.

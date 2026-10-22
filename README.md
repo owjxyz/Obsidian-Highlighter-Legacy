@@ -2,11 +2,17 @@
 
 Highlight exactly what you select in Obsidian Reading View. Matches the selected text together with the text before and after it, then saves native `==🔴text==` highlights.
 
-**Author:** [owjxyz](https://github.com/owjxyz)
+**Author:** [WooJIN OH (owjxyz)](https://github.com/owjxyz)
+
+[GitHub repository](https://github.com/owjxyz/Obsidian-Superier-Highlighter) · [Obsidian community listing](https://obsidian.md/plugins?id=superier-highlighter)
 
 [KOREAN](README.ko.md)
 
 ## Install
+
+In Obsidian, open **Settings → Community plugins → Browse**, search for **Superier Highlighter** by **WooJIN OH**, then install and enable it. You can also open its [community listing](https://obsidian.md/plugins?id=superier-highlighter).
+
+For the terminal installer, follow the instructions below.
 
 Close Obsidian, open a terminal in your vault folder, and run:
 
@@ -21,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highlighte
 - Existing Superier Highlighter settings are preserved.
 - Updates happen when you run the script; it does not install a background updater. Preview releases are excluded. If release lookup or verification fails, the vault stays unchanged.
 
-Manual installation: download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/owjxyz/Obsidian-Superier-Highlighter/releases/latest), place them in `.obsidian/plugins/superier-highlighter/`, then enable **Superier Highlighter**. Community-directory installation becomes available after Obsidian approves the submission.
+Manual installation: download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/owjxyz/Obsidian-Superier-Highlighter/releases/latest), place them in `.obsidian/plugins/superier-highlighter/`, then enable **Superier Highlighter**.
 
 ## Shortcuts
 
@@ -50,9 +56,10 @@ npm ci
 npm test
 npm run typecheck
 npm run build
+python3 test_metadata.py
 python3 test_install.py
 ```
 
 ## Credits
 
-Derived from [Reader Highlighter Tags](https://github.com/DuckTapeKiller/obsidian-reader-highlighter-tags) by DuckTapeKiller, under the [MIT license](LICENSE). Superier Highlighter is an independent fork maintained by owjxyz.
+Derived from [Reader Highlighter Tags](https://github.com/DuckTapeKiller/obsidian-reader-highlighter-tags) by DuckTapeKiller, under the [MIT license](LICENSE). Superier Highlighter is an independent fork maintained by WooJIN OH (owjxyz).

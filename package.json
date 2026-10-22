@@ -1,7 +1,7 @@
 {
     "name": "superier-highlighter",
     "version": "0.0.2",
-    "description": "Precise, context-aware highlighting in Reading View",
+    "description": "Highlight exact selections in Reading View using surrounding context, with native colours, tags, and annotations.",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",
@@ -19,7 +19,7 @@
         "obsidian",
         "obsidian-plugin"
     ],
-    "author": "owjxyz",
+    "author": "WooJIN OH",
     "license": "MIT",
     "devDependencies": {
         "@eslint/js": "^9.39.2",
