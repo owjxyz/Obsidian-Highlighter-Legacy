@@ -1,20 +1,15 @@
 import { Modal, Setting, Notice, TFile } from "obsidian";
 import type ReadingHighlighterPlugin from "../main";
-import { TagSuggestModal } from "./TagSuggestModal";
 import {
     parseHighlights,
     findHighlightById,
     removeHighlightFromRaw,
-    updateHighlightAnnotationInRaw,
     updateHighlightColorInRaw,
-    updateHighlightTagsInRaw,
 } from "../utils/highlights";
 import { COLOR_LABELS, HIGHLIGHT_COLORS, isHighlightColor, type HighlightColor } from "../utils/colors";
 
 interface EditState {
     color: HighlightColor | null;
-    tags: string;
-    annotation: string;
 }
 
 export class HighlightEditModal extends Modal {
@@ -23,8 +18,6 @@ export class HighlightEditModal extends Modal {
     highlightId: string;
     onApplied: (raw: string) => void;
     state: EditState;
-    tagsInput!: HTMLInputElement;
-    annotationInput!: HTMLTextAreaElement;
 
     constructor(
         plugin: ReadingHighlighterPlugin,
@@ -40,8 +33,6 @@ export class HighlightEditModal extends Modal {
 
         this.state = {
             color: null,
-            tags: "",
-            annotation: "",
         };
     }
 
@@ -71,8 +62,6 @@ export class HighlightEditModal extends Modal {
         }
 
         this.state.color = highlight.color;
-        this.state.tags = highlight.tagsText || "";
-        this.state.annotation = highlight.annotation || "";
 
         const preview = contentEl.createDiv({ cls: "highlight-edit-preview" });
         preview.createDiv({ cls: "highlight-edit-preview-label", text: "Preview" });
@@ -98,39 +87,6 @@ export class HighlightEditModal extends Modal {
                     this.state.color = isHighlightColor(value) ? value : null;
                 });
             });
-
-        const tagsSetting = new Setting(contentEl)
-            .setName("Tags")
-            .setDesc("Tags applied immediately before the highlight.");
-        this.tagsInput = tagsSetting.controlEl.createEl("input", {
-            type: "text",
-            cls: "highlight-edit-tags-input",
-        });
-        this.tagsInput.value = this.state.tags;
-        this.tagsInput.oninput = (e) => {
-            this.state.tags = (e.target as HTMLInputElement).value;
-        };
-        tagsSetting.addButton((btn) =>
-            btn.setButtonText("Pick").onClick(() => {
-                new TagSuggestModal(this.plugin, (tagText) => {
-                    this.state.tags = tagText;
-                    this.tagsInput.value = tagText;
-                }).open();
-            })
-        );
-
-        const annotationSetting = new Setting(contentEl)
-            .setName("Annotation")
-            .setDesc("Stored as a standard footnote definition in the note.");
-
-        this.annotationInput = annotationSetting.controlEl.createEl("textarea", {
-            cls: "highlight-edit-annotation-input",
-        });
-        this.annotationInput.rows = 3;
-        this.annotationInput.value = this.state.annotation;
-        this.annotationInput.oninput = (e) => {
-            this.state.annotation = (e.target as HTMLTextAreaElement).value;
-        };
 
         const footer = contentEl.createDiv({ cls: "modal-footer highlight-edit-footer" });
 
@@ -161,28 +117,9 @@ export class HighlightEditModal extends Modal {
                     return raw;
                 }
 
-                raw = updateHighlightTagsInRaw(raw, highlight, this.state.tags);
-
-                // Re-parse after potential length changes
-                let updatedParsed = parseHighlights(raw);
-                let updatedHighlight = findHighlightById(updatedParsed, this.highlightId);
-                if (!updatedHighlight) {
-                    throw new Error("Highlight not found after tag update.");
+                if (highlight.type === "html" || highlight.color !== this.state.color) {
+                    raw = updateHighlightColorInRaw(raw, highlight, this.state.color);
                 }
-
-                // Only rewrite the markers when something changes, so a plain
-                // edit of tags or annotation leaves the highlight byte for byte.
-                if (updatedHighlight.type === "html" || updatedHighlight.color !== this.state.color) {
-                    raw = updateHighlightColorInRaw(raw, updatedHighlight, this.state.color);
-                }
-
-                updatedParsed = parseHighlights(raw);
-                updatedHighlight = findHighlightById(updatedParsed, this.highlightId);
-                if (!updatedHighlight) {
-                    throw new Error("Highlight not found after style update.");
-                }
-
-                raw = updateHighlightAnnotationInRaw(raw, updatedHighlight, this.state.annotation);
                 return raw;
             });
 

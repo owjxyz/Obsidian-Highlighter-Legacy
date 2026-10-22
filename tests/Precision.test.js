@@ -15,7 +15,7 @@ function selection(ctx, first, start, last = first, end = start + 4) {
 async function paint(ctx, snapshot, mode = "color") {
     if (mode === "remove") await ctx.plugin.removeHighlightSelection(ctx.view, snapshot);
     else if (mode === "highlight") await ctx.plugin.highlightSelection(ctx.view, snapshot);
-    else await ctx.plugin.applyColorHighlight(ctx.view, "red", "", snapshot);
+    else await ctx.plugin.applyColorHighlight(ctx.view, "red", snapshot);
 }
 
 describe("precise Reading View selection", () => {

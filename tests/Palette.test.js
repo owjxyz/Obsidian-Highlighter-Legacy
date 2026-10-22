@@ -15,16 +15,11 @@ function makeManager(colors, showOnlyAssignedColors) {
             enableColorPalette: true,
             showOnlyAssignedColors,
             semanticColors: colors,
-            showTagButton: false,
-            showQuoteButton: false,
             showRemoveButton: false,
-            enableAnnotations: false,
-            showAnnotationButton: false,
-            enableReadingProgress: false,
             toolbarPosition: "right",
         },
+        getActiveReadingView: () => view,
         applyColorByIndex: (_v, index) => applied.push(index),
-        savePdfHighlight: () => {},
     };
     return { manager: new FloatingManager(plugin), applied, window };
 }

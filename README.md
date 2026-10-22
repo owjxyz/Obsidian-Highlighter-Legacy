@@ -45,15 +45,15 @@ Toolbar colour buttons recolour only the selected part. The remove button and re
 - Partial link labels and partial inline-code spans are refused rather than expanded. Select their complete visible text.
 - Unrecognized rendered syntax may be refused. Smart paragraph selection deliberately selects a full block when enabled; it is off by default.
 
-Tags, footnote annotations, highlight navigation, exports, and reading progress are retained from the original plugin.
+## Highlight management
 
-## Research view and data access
+The current-note navigator supports search, colour editing, individual and full-note removal, merging adjacent highlights, bulk recolouring, conversion of older HTML highlights, and undoing the last change.
 
-- Research view does not scan on opening or workspace restore by default. Use **Scan folders** to start, or enable **Scan when research view opens** in the plugin's **Research view** settings.
-- **Include folders** and **Exclude folders** accept vault-relative folder paths, one per line, including subfolders. Leave the include list empty to search all Markdown notes. Exclusions take priority; wildcards, absolute paths, `.` and `..` are not supported.
-- Research search lists Markdown file paths in the vault, but reads note contents only within the selected scope. Results and their cache stay in memory. Changing the folder scope clears the research results; an unfinished scan cannot restore results from the old scope.
-- Copy commands write the requested quote, highlight, or annotation to the system clipboard. The plugin does not read existing clipboard contents.
-- The plugin does not send note contents, file paths, or clipboard contents to a server. Export commands write the requested Markdown, JSON, CSV, or Canvas files locally in the vault.
+Tag management, footnote annotations, quote copying, global research, exports, PDF support, and reading progress have been removed. Tags, footnotes, and quotes already stored in notes remain intact. Only supported highlight options are loaded from older plugin settings.
+
+## Data access
+
+The plugin reads and edits the note containing the selection, including the source of an embedded note. It does not scan the vault or process PDFs. **Copy** in the highlight navigator writes only the chosen item's text to the system clipboard; existing clipboard contents are not read. Note contents, file paths, and clipboard contents are not sent to a server.
 
 ## Release verification
 

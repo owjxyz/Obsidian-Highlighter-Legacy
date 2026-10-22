@@ -93,6 +93,3 @@ export function normalizePath(path) {
         .replace(/^\/|\/$/g, "");
 }
 export function setIcon() {}
-export async function loadPdfJs() {
-    return {};
-}

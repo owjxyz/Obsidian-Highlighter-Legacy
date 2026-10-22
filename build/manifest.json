@@ -3,7 +3,7 @@
     "name": "Superier Highlighter",
     "version": "0.0.2",
     "minAppVersion": "1.14.0",
-    "description": "Highlight exact selections in Reading View using surrounding context, with native colours, tags, and annotations.",
+    "description": "Highlight exact selections in Reading View using surrounding context and native colours.",
     "author": "WooJIN OH",
     "authorUrl": "https://github.com/owjxyz",
     "isDesktopOnly": false

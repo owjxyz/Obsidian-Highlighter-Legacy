@@ -1,7 +1,7 @@
 {
     "name": "superier-highlighter",
     "version": "0.0.2",
-    "description": "Highlight exact selections in Reading View using surrounding context, with native colours, tags, and annotations.",
+    "description": "Highlight exact selections in Reading View using surrounding context and native colours.",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",

@@ -35,10 +35,7 @@ export async function setup(raw, html) {
     const plugin = new ReadingHighlighterPlugin(app, { id: "t", version: "0" });
     await plugin.loadSettings();
     plugin.settings.enableSmartParagraphSelection = false;
-    plugin.settings.enableColorHighlighting = false;
-    plugin.settings.enableFrontmatterTag = false;
     plugin.settings.enableHaptics = false;
-    plugin.settings.defaultTagPrefix = "";
     plugin.settings.learnedNormRules = [];
     plugin.logic = new SelectionLogic(app, () => []);
     return { window, doc, content, plugin, view, out: () => current };

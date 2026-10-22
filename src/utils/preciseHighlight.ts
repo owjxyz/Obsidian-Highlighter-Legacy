@@ -21,14 +21,7 @@ function wrapSelected(text: string, color: HighlightColor | null) {
 }
 
 /** Rewrite only the touched wrappers, retaining the old colours on either side. */
-function rewriteSpan(
-    text: string,
-    start: number,
-    end: number,
-    mode: string,
-    color: HighlightColor | null,
-    tag: string
-) {
+function rewriteSpan(text: string, start: number, end: number, mode: string, color: HighlightColor | null) {
     if (mode.startsWith("toggle-")) {
         const containing = parseHighlights(text).highlights.find((h) => h.start <= start && h.end >= end);
         if (containing)
@@ -77,15 +70,7 @@ function rewriteSpan(
             previous.text += clean.slice(left, right);
         else runs.push({ text: clean.slice(left, right), active, color: shade });
     }
-    let tagged = false;
-    const replacement = runs
-        .map((run) => {
-            if (!run.active) return run.text;
-            const prefix = tag && !tagged ? `${tag} ` : "";
-            tagged = true;
-            return prefix + wrapSelected(run.text, run.color);
-        })
-        .join("");
+    const replacement = runs.map((run) => (run.active ? wrapSelected(run.text, run.color) : run.text)).join("");
     return text.slice(0, from) + replacement + text.slice(to);
 }
 
@@ -127,8 +112,7 @@ export function editHighlightRange(
     start: number,
     end: number,
     mode: string,
-    color: HighlightColor | null,
-    tag = ""
+    color: HighlightColor | null
 ) {
     if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > raw.length || start >= end) {
         throw new Error("Invalid highlight range.");
@@ -165,7 +149,7 @@ export function editHighlightRange(
                 const text = result.slice(cell.start, cell.end);
                 result =
                     result.slice(0, cell.start) +
-                    rewriteSpan(text, a - cell.start, b - cell.start, mode, color, tag) +
+                    rewriteSpan(text, a - cell.start, b - cell.start, mode, color) +
                     result.slice(cell.end);
             }
             return result;

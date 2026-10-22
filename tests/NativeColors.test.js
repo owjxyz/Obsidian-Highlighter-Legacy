@@ -21,7 +21,7 @@ function rangeBetween(ctx, startText, endText) {
 }
 
 async function colour(ctx, color, from, to = from) {
-    await ctx.plugin.applyColorHighlight(ctx.view, color, "", rangeBetween(ctx, from, to));
+    await ctx.plugin.applyColorHighlight(ctx.view, color, rangeBetween(ctx, from, to));
 }
 
 async function plain(ctx, from, to = from) {
@@ -89,17 +89,6 @@ describe("an existing coloured highlight", () => {
         const ctx = await setup(raw, html);
         await colour(ctx, "blue", "Cuatro", "seis.");
         expect(ctx.out()).toBe("Antes del texto. ==🟡Uno dos tres.== ==🔵Cuatro cinco seis.==");
-    });
-});
-
-describe("tagging a coloured highlight", () => {
-    it("keeps the colour", async () => {
-        const raw = "==🟣Uno dos.== Tres.";
-        const ctx = await setup(raw, '<p><mark data-highlight="purple">Uno dos.</mark> Tres.</p>');
-        const parsed = await ctx.plugin.app.vault.read();
-        const start = parsed.indexOf("Uno");
-        await ctx.plugin.applyMarkdownModification(ctx.view.file, "", start, start + "Uno dos.".length, "tag", "idea");
-        expect(ctx.out()).toBe("#idea ==🟣Uno dos.== Tres.");
     });
 });
 

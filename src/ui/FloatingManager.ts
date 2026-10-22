@@ -1,14 +1,9 @@
-import { setIcon, MarkdownView, Platform, View, App } from "obsidian";
+import { setIcon, MarkdownView, Platform, App } from "obsidian";
 import type ReadingHighlighterPlugin from "../main";
 import type { SemanticColor } from "../main";
 import { COLOR_LABELS } from "../utils/colors";
 
-type ActionName =
-    | "highlightSelection"
-    | "tagSelection"
-    | "copyAsQuote"
-    | "annotateSelection"
-    | "removeHighlightSelection";
+type ActionName = "highlightSelection" | "removeHighlightSelection";
 
 export interface SelectionSnapshot {
     text: string;
@@ -20,11 +15,7 @@ export class FloatingManager {
     app: App;
     containerEl: HTMLDivElement | null;
     highlightBtn: HTMLButtonElement | null;
-    tagBtn: HTMLButtonElement | null;
     removeBtn: HTMLButtonElement | null;
-    quoteBtn: HTMLButtonElement | null;
-    annotateBtn: HTMLButtonElement | null;
-    extractAllBtn: HTMLButtonElement | null;
     colorButtons: HTMLButtonElement[];
     paletteContainer: HTMLDivElement | null;
     _handlers: (() => void)[];
@@ -37,11 +28,7 @@ export class FloatingManager {
         this.app = plugin.app;
         this.containerEl = null;
         this.highlightBtn = null;
-        this.tagBtn = null;
         this.removeBtn = null;
-        this.quoteBtn = null;
-        this.annotateBtn = null;
-        this.extractAllBtn = null;
         this.colorButtons = [];
         this.paletteContainer = null;
         this._handlers = [];
@@ -169,43 +156,15 @@ export class FloatingManager {
             }
         }
 
-        const showsMore =
-            this.plugin.settings.showTagButton ||
-            this.plugin.settings.showQuoteButton ||
-            (this.plugin.settings.enableAnnotations && this.plugin.settings.showAnnotationButton) ||
-            this.plugin.settings.showRemoveButton;
-        if (this.paletteContainer && showsMore) {
+        if (this.paletteContainer && this.plugin.settings.showRemoveButton) {
             this.containerEl.createDiv({ cls: "reading-highlighter-separator" });
-        }
-
-        // Tag button
-        // Tagging, annotating and erasing write into a note, so a PDF view
-        // hides them (markdown-only-btn); its highlights go to a companion note.
-        if (this.plugin.settings.showTagButton) {
-            this.tagBtn = this.createButton("tag", "Tag selection");
-            this.tagBtn.addClass("markdown-only-btn");
-        }
-
-        // Quote button
-        if (this.plugin.settings.showQuoteButton) {
-            this.quoteBtn = this.createButton("quote", "Copy as quote");
-        }
-
-        // Annotation button
-        if (this.plugin.settings.enableAnnotations && this.plugin.settings.showAnnotationButton) {
-            this.annotateBtn = this.createButton("message-square", "Add annotation");
-            this.annotateBtn.addClass("markdown-only-btn");
         }
 
         // Remove button
         if (this.plugin.settings.showRemoveButton) {
             this.removeBtn = this.createButton("trash-2", "Remove highlights");
-            this.removeBtn.addClass("reading-highlighter-remove-btn", "markdown-only-btn");
+            this.removeBtn.addClass("reading-highlighter-remove-btn");
         }
-
-        // PDF Extract All Button (Special)
-        this.extractAllBtn = this.createButton("file-text", "Extract all PDF text");
-        this.extractAllBtn.addClass("pdf-only-btn");
     }
 
     createButton(iconName: string, label: string): HTMLButtonElement {
@@ -232,24 +191,8 @@ export class FloatingManager {
 
             const handler = (evt: Event) => {
                 preventFocus(evt);
-                let view: MarkdownView | View | null = this.app.workspace.getActiveViewOfType(MarkdownView);
-                let isPdf = false;
-
-                if (!view || (view as MarkdownView).getMode() !== "preview") {
-                    view = this.app.workspace.getActiveViewOfType(View);
-                    if (view && view.getViewType() === "pdf") {
-                        isPdf = true;
-                    } else {
-                        this.hide();
-                        return;
-                    }
-                }
-
-                if (isPdf) {
-                    void this.plugin.savePdfHighlight(view, this._selectionSnapshot, "action", actionName);
-                } else {
-                    void this.plugin[actionName](view as MarkdownView, this._selectionSnapshot);
-                }
+                const view = this.plugin.getActiveReadingView();
+                if (view) void this.plugin[actionName](view, this._selectionSnapshot);
 
                 this.hide();
             };
@@ -260,24 +203,7 @@ export class FloatingManager {
 
         // Main actions
         attachAction(this.highlightBtn, "highlightSelection");
-        attachAction(this.tagBtn, "tagSelection");
-        attachAction(this.quoteBtn, "copyAsQuote");
-        attachAction(this.annotateBtn, "annotateSelection");
         attachAction(this.removeBtn, "removeHighlightSelection");
-
-        // Special: Extract All PDF
-        if (this.extractAllBtn) {
-            const handler = (evt: Event) => {
-                preventFocus(evt);
-                const view = this.app.workspace.getActiveViewOfType(View);
-                if (view && view.getViewType() === "pdf") {
-                    void this.plugin.extractAllPdfText(view);
-                }
-                this.hide();
-            };
-            this.extractAllBtn.addEventListener("mousedown", handler);
-            this.extractAllBtn.addEventListener("touchstart", handler, { passive: false });
-        }
 
         // Color palette buttons
         this.colorButtons.forEach((btn) => {
@@ -286,24 +212,8 @@ export class FloatingManager {
             const index = Number(btn.getAttribute("data-color-index"));
             const handler = (evt: Event) => {
                 preventFocus(evt);
-                let view: MarkdownView | View | null = this.app.workspace.getActiveViewOfType(MarkdownView);
-                let isPdf = false;
-
-                if (!view || (view as MarkdownView).getMode() !== "preview") {
-                    view = this.app.workspace.getActiveViewOfType(View);
-                    if (view && view.getViewType() === "pdf") {
-                        isPdf = true;
-                    } else {
-                        this.hide();
-                        return;
-                    }
-                }
-
-                if (isPdf) {
-                    void this.plugin.savePdfHighlight(view, this._selectionSnapshot, "color", index);
-                } else {
-                    void this.plugin.applyColorByIndex(view as MarkdownView, index, this._selectionSnapshot);
-                }
+                const view = this.plugin.getActiveReadingView();
+                if (view) void this.plugin.applyColorByIndex(view, index, this._selectionSnapshot);
 
                 this.hide();
             };
@@ -387,18 +297,12 @@ export class FloatingManager {
 
     /** Internal: actually process the current selection state. */
     _doHandleSelection() {
-        let view: MarkdownView | View | null = this.app.workspace.getActiveViewOfType(MarkdownView);
-        let isPdf = false;
-        if (!view || (view as MarkdownView).getMode() !== "preview") {
-            view = this.app.workspace.getActiveViewOfType(View);
-            if (!view || view.getViewType() !== "pdf") {
-                this.hide();
-                return;
-            }
-            isPdf = true;
+        const view = this.plugin.getActiveReadingView();
+        if (!view) {
+            this._selectionSnapshot = null;
+            this.hide();
+            return;
         }
-
-        this.containerEl?.toggleClass("is-pdf-view", isPdf);
 
         const sel = window.getSelection();
         const snippet = sel?.toString() ?? "";

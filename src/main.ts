@@ -6,22 +6,14 @@ import {
     PluginSettingTab,
     Setting,
     MarkdownView,
-    View,
     TFile,
-    WorkspaceLeaf,
-    loadPdfJs,
-    normalizePath,
     type SettingDefinitionItem,
     type SettingGroupItem,
 } from "obsidian";
 import { FloatingManager, type SelectionSnapshot } from "./ui/FloatingManager";
 import { SelectionLogic } from "./core/SelectionLogic";
-import { TagSuggestModal } from "./modals/TagSuggestModal";
-import { AnnotationModal } from "./modals/AnnotationModal";
 import { HighlightNavigatorView, HIGHLIGHT_NAVIGATOR_VIEW } from "./views/HighlightNavigator";
-import { ResearchView, RESEARCH_VIEW } from "./views/ResearchView";
 import { getScroll, applyScroll, type ScrollPosition } from "./utils/dom";
-import { exportHighlightsToCSV, exportHighlightsToJSON, exportHighlightsToMD } from "./utils/export";
 import { FailureRecoveryModal, type DerivedRule } from "./ui/FailureRecoveryModal";
 import {
     parseHighlights,
@@ -29,8 +21,6 @@ import {
     convertHtmlHighlightsInRaw,
     recolorHighlightsInRaw,
     removeAllHighlightsFromRaw,
-    removeFootnoteFromRaw,
-    removeAllFootnotesFromRaw,
     type RecolorSource,
 } from "./utils/highlights";
 import {
@@ -38,7 +28,6 @@ import {
     HIGHLIGHT_COLORS,
     isHighlightColor,
     nearestHighlightColor,
-    wrapHighlight,
     type HighlightColor,
 } from "./utils/colors";
 import { getSelectedOccurrence, readBlockTextAndCaret, type SelectionHint } from "./utils/blockOccurrence";
@@ -66,66 +55,31 @@ interface ReadingHighlighterSettings {
     toolbarPosition: string;
     /** Colour the plain highlight button writes; empty for the theme's default. */
     defaultHighlightColor: HighlightColor | "";
-    defaultTagPrefix: string;
     enableHaptics: boolean;
-    showTagButton: boolean;
     showRemoveButton: boolean;
-    showQuoteButton: boolean;
     enableColorPalette: boolean;
     showOnlyAssignedColors: boolean;
     semanticColors: SemanticColor[];
-    quoteTemplate: string;
-    enableAnnotations: boolean;
-    showAnnotationButton: boolean;
-    enableReadingProgress: boolean;
-    readingPositions: Record<string, number>;
-    enableSmartTagSuggestions: boolean;
-    recentTags: string[];
-    maxRecentTags: number;
     showNavigatorButton: boolean;
     showTooltips: boolean;
-    enableFrontmatterTag: boolean;
-    frontmatterTag: string;
     enableSmartParagraphSelection: boolean;
     learnedNormRules: LearnedNormRule[];
-    researchAutoScan: boolean;
-    researchFolders: string;
-    researchExcludedFolders: string;
 }
 
 const SMART_SELECTION_TAGS = new Set(["P", "LI", "BLOCKQUOTE", "PRE", "H1", "H2", "H3", "H4", "H5", "H6", "TD", "TH"]);
 
-const FRONTMATTER_NEEDS_QUOTES_RE = new RegExp("[:\\s{}\\[\\],&*#?|<>=!%@\\\\-]");
-const FRONTMATTER_RESERVED_RE = /^(true|false|null|yes|no|on|off)$/i;
-
 const DEFAULT_SETTINGS: ReadingHighlighterSettings = {
     toolbarPosition: "right",
     defaultHighlightColor: "",
-    defaultTagPrefix: "",
     enableHaptics: true,
-    showTagButton: true,
     showRemoveButton: true,
-    showQuoteButton: true,
     enableColorPalette: false,
     showOnlyAssignedColors: true,
     semanticColors: HIGHLIGHT_COLORS.map((color) => ({ color, meaning: "" })),
-    quoteTemplate: "> {{text}}\n>\n> — [[{{file}}]]",
-    enableAnnotations: true,
-    showAnnotationButton: true,
-    enableReadingProgress: true,
-    readingPositions: {},
-    enableSmartTagSuggestions: true,
-    recentTags: [],
-    maxRecentTags: 10,
     showNavigatorButton: true,
     showTooltips: false,
-    enableFrontmatterTag: false,
-    frontmatterTag: "resaltados",
     enableSmartParagraphSelection: false,
     learnedNormRules: [],
-    researchAutoScan: false,
-    researchFolders: "",
-    researchExcludedFolders: "",
 };
 
 /**
@@ -148,15 +102,6 @@ function migratePalette(saved: LegacyColorSettings["semanticColors"]): SemanticC
     return palette;
 }
 
-// Stringify an unknown frontmatter value the same way `String(value || "")`
-// did, but in a form the type-checker is happy with.
-function toDisplayString(value: unknown): string {
-    if (typeof value === "string") return value;
-    if (!value) return "";
-    const primitive: string | number | boolean = value as string | number | boolean;
-    return String(primitive);
-}
-
 /** What `SelectionLogic.locateSelection` resolves a selection to. */
 interface LocatedRange {
     file: TFile;
@@ -176,24 +121,6 @@ interface SelectionRequest {
     contextKind: BlockKind | null;
 }
 
-interface PdfTextItem {
-    str: string;
-    transform: number[];
-}
-
-interface PdfPage {
-    getTextContent(): Promise<{ items: PdfTextItem[] }>;
-}
-
-interface PdfDocument {
-    numPages: number;
-    getPage(n: number): Promise<PdfPage>;
-}
-
-interface PdfJs {
-    getDocument(args: { data: ArrayBuffer }): { promise: Promise<PdfDocument> };
-}
-
 export default class ReadingHighlighterPlugin extends Plugin {
     settings: ReadingHighlighterSettings;
     floatingManager: FloatingManager;
@@ -204,11 +131,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
      * restoring `original` would throw away whatever was written since.
      */
     lastModification: { file: TFile; original: string; after?: string } | null = null;
-    lastScrollPosition: ScrollPosition | null = null;
-    /** A reading position waiting to be saved once scrolling settles. */
-    pendingProgress: { view: MarkdownView; file: TFile } | null = null;
-    progressTimer: number | null = null;
-
     async onload() {
         await this.loadSettings();
 
@@ -217,26 +139,17 @@ export default class ReadingHighlighterPlugin extends Plugin {
 
         this.registerView(HIGHLIGHT_NAVIGATOR_VIEW, (leaf) => new HighlightNavigatorView(leaf, this));
 
-        this.registerView(RESEARCH_VIEW, (leaf) => new ResearchView(leaf, this));
-
         this.addSettingTab(new ReadingHighlighterSettingTab(this.app, this));
         this.registerCommands();
 
         this.registerWindowEvents(activeDocument);
         // A popout window has a document of its own, which fires its own
-        // selection and scroll events.
+        // selection events.
         this.registerEvent(this.app.workspace.on("window-open", (win) => this.registerWindowEvents(win.doc)));
 
         this.registerEvent(
             this.app.workspace.on("active-leaf-change", () => {
                 this.floatingManager.handleSelection();
-            })
-        );
-
-        this.registerEvent(
-            this.app.workspace.on("active-leaf-change", () => {
-                // The position waiting to be saved belongs to the note being left.
-                this.flushReadingProgress();
             })
         );
 
@@ -270,57 +183,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
         });
 
         this.addCommand({
-            id: "tag-selection",
-            name: "Tag selection (reading view)",
-            checkCallback: (checking) => {
-                const view = this.getActiveReadingView();
-                if (!view) return false;
-                if (checking) return true;
-                void this.tagSelection(view);
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "extract-all-pdf-text",
-            name: "Extract all text from current PDF",
-            checkCallback: (checking) => {
-                const view = this.app.workspace.getActiveViewOfType(View);
-                if (view && view.getViewType() === "pdf") {
-                    if (!checking) {
-                        void this.extractAllPdfText(view);
-                    }
-                    return true;
-                }
-                return false;
-            },
-        });
-
-        this.addCommand({
-            id: "annotate-selection",
-            name: "Add annotation to selection (reading view)",
-            checkCallback: (checking) => {
-                const view = this.getActiveReadingView();
-                if (!view) return false;
-                if (checking) return true;
-                void this.annotateSelection(view);
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "copy-as-quote",
-            name: "Copy selection as quote (reading view)",
-            checkCallback: (checking) => {
-                const view = this.getActiveReadingView();
-                if (!view) return false;
-                if (checking) return true;
-                void this.copyAsQuote(view);
-                return true;
-            },
-        });
-
-        this.addCommand({
             id: "remove-highlight",
             name: "Remove highlight from selection (reading view)",
             checkCallback: (checking) => {
@@ -349,50 +211,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
         });
 
         this.addCommand({
-            id: "open-research-view",
-            name: "Open global research view",
-            callback: () => {
-                void this.activateResearchView();
-            },
-        });
-
-        this.addCommand({
-            id: "export-highlights",
-            name: "Export highlights to new note",
-            checkCallback: (checking) => {
-                const view = this.getActiveReadingView();
-                if (!view) return false;
-                if (checking) return true;
-                void this.exportHighlights(view);
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "export-highlights-json",
-            name: "Export highlights to JSON",
-            checkCallback: (checking) => {
-                const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-                if (!view || !view.file) return false;
-                if (checking) return true;
-                void this.exportHighlightsJSON(view);
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "export-highlights-csv",
-            name: "Export highlights to CSV",
-            checkCallback: (checking) => {
-                const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-                if (!view || !view.file) return false;
-                if (checking) return true;
-                void this.exportHighlightsCSV(view);
-                return true;
-            },
-        });
-
-        this.addCommand({
             id: "remove-all-highlights",
             name: "Remove all highlights from note",
             checkCallback: (checking) => {
@@ -400,18 +218,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
                 if (!view) return false;
                 if (checking) return true;
                 void this.removeAllHighlights(view);
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "remove-all-annotations",
-            name: "Remove all annotations from note",
-            checkCallback: (checking) => {
-                const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-                if (!view || !view.file) return false;
-                if (checking) return true;
-                void this.removeAllAnnotations(view.file);
                 return true;
             },
         });
@@ -452,18 +258,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
             },
         });
 
-        this.addCommand({
-            id: "resume-reading",
-            name: "Resume reading (jump to last position)",
-            checkCallback: (checking) => {
-                const view = this.getActiveReadingView();
-                if (!view) return false;
-                if (checking) return true;
-                void this.resumeReading(view);
-                return true;
-            },
-        });
-
         // The ids keep their old numbering, so hotkeys bound to the first six
         // still work; each now names the native colour it applies.
         HIGHLIGHT_COLORS.forEach((color, i) => {
@@ -481,21 +275,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
         });
     }
 
-    async activateResearchView() {
-        const { workspace } = this.app;
-        let leaf: WorkspaceLeaf | null = null;
-        const leaves = workspace.getLeavesOfType(RESEARCH_VIEW);
-        if (leaves.length > 0) {
-            leaf = leaves[0];
-        } else {
-            leaf = workspace.getLeaf("tab");
-            await leaf.setViewState({ type: RESEARCH_VIEW, active: true });
-        }
-        void workspace.revealLeaf(leaf);
-    }
-
     onunload() {
-        this.flushReadingProgress();
         this.floatingManager.unload();
     }
 
@@ -503,16 +283,19 @@ export default class ReadingHighlighterPlugin extends Plugin {
         this.registerDomEvent(doc, "selectionchange", () => {
             this.floatingManager.handleSelection();
         });
-        // Scroll does not bubble, so listen in the capture phase.
-        this.registerDomEvent(doc, "scroll", (evt) => this.onReadingScroll(evt), { capture: true, passive: true });
     }
 
     async loadSettings() {
         const loaded = ((await this.loadData()) as Partial<ReadingHighlighterSettings> & LegacyColorSettings) || {};
-        const { enableColorHighlighting, highlightColor, ...current } = loaded;
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, current, {
-            semanticColors: migratePalette(loaded.semanticColors),
-        });
+        const { enableColorHighlighting, highlightColor } = loaded;
+        this.settings = Object.assign(
+            {},
+            DEFAULT_SETTINGS,
+            Object.fromEntries(Object.entries(loaded).filter(([key]) => Object.hasOwn(DEFAULT_SETTINGS, key))),
+            {
+                semanticColors: migratePalette(loaded.semanticColors),
+            }
+        );
         if (!isHighlightColor(this.settings.defaultHighlightColor)) {
             // A default colour chosen when highlights were HTML becomes the
             // nearest native one.
@@ -522,9 +305,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
     }
 
     async saveSettings() {
-        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_VIEW)) {
-            (leaf.view as ResearchView).refreshScanScope();
-        }
         await this.saveData(this.settings);
         this.floatingManager.refresh();
     }
@@ -684,8 +464,8 @@ export default class ReadingHighlighterPlugin extends Plugin {
 
     async undoLastHighlight() {
         const last = this.lastModification;
-        // Without a recorded result the change was never written (a tag or
-        // annotation dialog that was cancelled), so there is nothing to undo.
+        // Without a recorded result the change was never written, so there is
+        // nothing to undo.
         if (!last || last.after === undefined) {
             new Notice("Nothing to undo.");
             return;
@@ -850,279 +630,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
     ) {
         if (index < 0 || index >= this.settings.semanticColors.length) return;
         const palette = this.settings.semanticColors[index];
-        await this.applyColorHighlight(view, palette.color, "", selectionSnapshot, toggle);
-    }
-
-    async savePdfHighlight(
-        view: View & { file?: TFile },
-        selectionSnapshot: SelectionSnapshot | null,
-        mode: string,
-        payload: string | number
-    ) {
-        if (!view.file) return;
-        let snippet = selectionSnapshot?.text || window.getSelection()?.toString() || "";
-        if (!snippet.trim()) {
-            new Notice("No text selected.");
-            return;
-        }
-        snippet = this.sanitizePdfText(snippet);
-        const pdfName = view.file.basename;
-        // normalizePath, because a PDF at the vault root has the parent path
-        // "/" and the joined path would start with "//".
-        const companionFile = normalizePath(`${view.file.parent?.path ?? ""}/${pdfName} - Highlights.md`);
-        const fileExists = this.app.vault.getAbstractFileByPath(companionFile);
-
-        let highlightOutput = snippet.trim();
-        if (mode === "color") {
-            const index = typeof payload === "number" ? payload : parseInt(payload);
-            const palette = this.settings.semanticColors[index];
-            if (palette) {
-                // One highlight per line: a pair cannot span the quote's lines.
-                highlightOutput = highlightOutput
-                    .split("\n")
-                    .map((line) => wrapHighlight(line, palette.color))
-                    .join("\n");
-            }
-        } else if (mode === "action") {
-            if (payload === "highlightSelection") {
-                highlightOutput = snippet.trim();
-            } else if (payload === "copyAsQuote") {
-                void this.copyAsQuote(view as unknown as MarkdownView, { ...selectionSnapshot, text: snippet });
-                return;
-            } else {
-                return;
-            }
-        }
-
-        const blockId = "^" + Math.random().toString(36).substring(2, 8);
-        const blockquotedText = highlightOutput
-            .split("\n")
-            .map((line) => `> ${line}`)
-            .join("\n");
-        const appendString = `${blockquotedText}\n> — [[${view.file.path}|${pdfName}]] ${blockId}\n\n`;
-
-        try {
-            if (fileExists instanceof TFile) {
-                const fileContent = await this.app.vault.read(fileExists);
-                await this.app.vault.modify(fileExists, fileContent + "\n" + appendString);
-            } else {
-                const fileContent = `# Highlights from [[${view.file.path}|${pdfName}]]\n\n${appendString}`;
-                await this.app.vault.create(companionFile, fileContent);
-            }
-            new Notice("Saved to " + pdfName + " - Highlights");
-            window.getSelection()?.removeAllRanges();
-            if (this.settings.enableHaptics && Platform.isMobile) {
-                navigator.vibrate?.(10);
-            }
-        } catch (e) {
-            console.error("Failed to save PDF highlight", e);
-            new Notice("Failed to save PDF highlight");
-        }
-    }
-
-    sanitizePdfText(text: string) {
-        if (!text) return text;
-        let sanitized = text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ");
-        sanitized = sanitized.replace(/(\w)-\n(\w)/g, "$1$2");
-        sanitized = sanitized.replace(/\n\n+/g, "[[PAR_BREAK]]");
-        sanitized = sanitized.replace(/\n(?=[ \t]*[-*+] |[ \t]*\d+[.)] )/g, "[[LIST_BREAK]]");
-        // A newline that does not follow sentence-ending punctuation is a soft
-        // wrap, so it becomes a space. Written with a replacer rather than a
-        // lookbehind: lookbehind is a parse error on iOS before 16.4, which
-        // would stop the whole plugin from loading there.
-        sanitized = sanitized.replace(/\n/g, (match, offset: number, full: string) =>
-            offset > 0 && ".!?/:;".includes(full[offset - 1]) ? match : " "
-        );
-        sanitized = sanitized.replace(/\[\[PAR_BREAK\]\]/g, "\n\n");
-        sanitized = sanitized.replace(/\[\[LIST_BREAK\]\]/g, "\n");
-        return sanitized.replace(/[ \t]+/g, " ").trim();
-    }
-
-    async extractAllPdfText(view: View & { file?: TFile }) {
-        if (!view || view.getViewType() !== "pdf" || !view.file) {
-            new Notice("Please open a PDF file first.");
-            return;
-        }
-
-        const notice = new Notice("Extracting all PDF text...", 0);
-
-        try {
-            const pdfjs = (await loadPdfJs()) as PdfJs;
-            const buffer = await this.app.vault.readBinary(view.file);
-            const loadingTask = pdfjs.getDocument({ data: buffer });
-            const pdf = await loadingTask.promise;
-
-            let fullText = "";
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const content = await page.getTextContent();
-                let lastY = -1;
-                let pageText = "";
-                for (const item of content.items) {
-                    if (lastY !== -1 && Math.abs(item.transform[5] - lastY) > 5) {
-                        pageText += "\n";
-                    } else if (lastY !== -1) {
-                        pageText += " ";
-                    }
-                    pageText += item.str;
-                    lastY = item.transform[5];
-                }
-                fullText += pageText + "\n\n";
-                if (i % 10 === 0) notice.setMessage(`Extracting text... Page ${i}/${pdf.numPages}`);
-            }
-
-            const dummySnapshot = { text: fullText, range: null };
-            await this.savePdfHighlight(view, dummySnapshot, "action", "highlightSelection");
-            notice.hide();
-            new Notice(`Successfully extracted ${pdf.numPages} pages.`);
-        } catch (e) {
-            console.error("Full PDF extraction failed", e);
-            notice.hide();
-            new Notice("Failed to extract PDF text.");
-        }
-    }
-
-    async tagSelection(view: MarkdownView, selectionSnapshot?: SelectionSnapshot | null) {
-        const request = this.buildSelectionRequest(view, selectionSnapshot);
-        if (!request) {
-            new Notice("No text selected.");
-            return;
-        }
-        const scrollPos = getScroll(view);
-
-        const result = await this.logic.locateSelection(
-            view.file,
-            view,
-            request.snippet,
-            request.contextText,
-            request.occurrenceIndex,
-            request.withinBlock,
-            request.contextKind
-        );
-
-        if (!result) {
-            this.handleSelectionFailure(view, request, "tagSelection");
-            return;
-        }
-
-        const targetFile = result.file;
-        await this.saveUndoState(targetFile);
-
-        new TagSuggestModal(this, async (tag) => {
-            const newResult = await this.logic.locateSelection(
-                view.file,
-                view,
-                request.snippet,
-                request.contextText,
-                request.occurrenceIndex,
-                request.withinBlock,
-                request.contextKind
-            );
-            if (!newResult) {
-                new Notice("Selection lost - file may have changed.");
-                return;
-            }
-
-            if (tag && this.settings.enableSmartTagSuggestions) {
-                this.addRecentTag(tag);
-            }
-
-            if (
-                !(await this.applyMarkdownModification(
-                    targetFile,
-                    newResult.raw,
-                    newResult.start,
-                    newResult.end,
-                    "tag",
-                    tag
-                ))
-            )
-                return;
-            this.restoreScroll(view, scrollPos);
-            window.getSelection()?.removeAllRanges();
-        }).open();
-    }
-
-    addRecentTag(tag: string) {
-        const cleanTag = tag.replace(/^#/, "").trim();
-        if (!cleanTag) return;
-        this.settings.recentTags = this.settings.recentTags.filter((t) => t !== cleanTag);
-        this.settings.recentTags.unshift(cleanTag);
-        if (this.settings.recentTags.length > this.settings.maxRecentTags) {
-            this.settings.recentTags = this.settings.recentTags.slice(0, this.settings.maxRecentTags);
-        }
-        void this.saveData(this.settings);
-    }
-
-    async annotateSelection(view: MarkdownView, selectionSnapshot?: SelectionSnapshot | null) {
-        const request = this.buildSelectionRequest(view, selectionSnapshot);
-        if (!request) {
-            new Notice("No text selected.");
-            return;
-        }
-        const scrollPos = getScroll(view);
-
-        const result = await this.logic.locateSelection(
-            view.file,
-            view,
-            request.snippet,
-            request.contextText,
-            request.occurrenceIndex,
-            request.withinBlock,
-            request.contextKind
-        );
-
-        if (!result) {
-            this.handleSelectionFailure(view, request, "annotateSelection");
-            return;
-        }
-
-        const targetFile = result.file;
-        await this.saveUndoState(targetFile);
-
-        new AnnotationModal(this.app, async (comment) => {
-            const newResult = await this.logic.locateSelection(
-                view.file,
-                view,
-                request.snippet,
-                request.contextText,
-                request.occurrenceIndex,
-                request.withinBlock,
-                request.contextKind
-            );
-            if (!newResult) {
-                new Notice("Selection lost - file may have changed.");
-                return;
-            }
-
-            const currentRaw = await this.app.vault.read(targetFile);
-            await this.applyAnnotation(targetFile, currentRaw, newResult.start, newResult.end, comment);
-            this.restoreScroll(view, scrollPos);
-            window.getSelection()?.removeAllRanges();
-            new Notice("Annotation added!");
-        }).open();
-    }
-
-    async applyAnnotation(file: TFile, raw: string, start: number, end: number, comment: string) {
-        if (!raw) {
-            raw = await this.app.vault.read(file);
-        }
-        const footnotePattern = /\[\^(\d+)\]/g;
-        let maxNumber = 0;
-        let match: RegExpExecArray | null;
-        while ((match = footnotePattern.exec(raw)) !== null) {
-            const num = parseInt(match[1]);
-            if (num > maxNumber) maxNumber = num;
-        }
-        const footnoteNum = maxNumber + 1;
-        const beforeSelection = raw.substring(0, end);
-        const afterSelection = raw.substring(end);
-        const footnoteRef = `[^${footnoteNum}]`;
-        const footnoteDef = `\n\n[^${footnoteNum}]: ${comment}`;
-        let newContent = beforeSelection + footnoteRef + afterSelection;
-        newContent = newContent.trimEnd() + footnoteDef + "\n";
-        await this.app.vault.modify(file, newContent);
-        await this.recordUndoResult(file, newContent);
+        await this.applyColorHighlight(view, palette.color, selectionSnapshot, toggle);
     }
 
     async removeHighlightSelection(view: MarkdownView, selectionSnapshot?: SelectionSnapshot | null) {
@@ -1183,32 +691,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
         new Notice("All highlights removed.");
     }
 
-    async removeAnnotationById(file: TFile, footnoteId: string) {
-        await this.saveUndoState(file);
-        const raw = await this.app.vault.read(file);
-        const result = removeFootnoteFromRaw(raw, footnoteId);
-        if (!result.changed) {
-            new Notice("Annotation not found.");
-            return;
-        }
-        await this.app.vault.modify(file, result.raw);
-        await this.recordUndoResult(file, result.raw);
-        new Notice("Annotation removed.");
-    }
-
-    async removeAllAnnotations(file: TFile) {
-        await this.saveUndoState(file);
-        const raw = await this.app.vault.read(file);
-        const result = removeAllFootnotesFromRaw(raw);
-        if (!result.removedCount) {
-            new Notice("No annotations to remove.");
-            return;
-        }
-        await this.app.vault.modify(file, result.raw);
-        await this.recordUndoResult(file, result.raw);
-        new Notice(`Removed ${result.removedCount} annotation${result.removedCount === 1 ? "" : "s"}.`);
-    }
-
     async mergeAdjacentHighlightsInFile(file: TFile) {
         await this.saveUndoState(file);
         const raw = await this.app.vault.read(file);
@@ -1256,71 +738,9 @@ export default class ReadingHighlighterPlugin extends Plugin {
         );
     }
 
-    async exportHighlights(view: MarkdownView) {
-        try {
-            const exportPath = await exportHighlightsToMD(this.app, view.file);
-            new Notice(`Highlights exported to ${exportPath}`);
-            const exportFile = this.app.vault.getAbstractFileByPath(exportPath);
-            if (exportFile instanceof TFile) {
-                await this.app.workspace.getLeaf().openFile(exportFile);
-            }
-        } catch (err) {
-            new Notice("Failed to export highlights.");
-            console.error(err);
-        }
-    }
-
-    async exportHighlightsJSON(view: MarkdownView) {
-        try {
-            const exportPath = await exportHighlightsToJSON(this.app, view.file);
-            new Notice(`Highlights exported to ${exportPath}`);
-            const exportFile = this.app.vault.getAbstractFileByPath(exportPath);
-            if (exportFile instanceof TFile) {
-                await this.app.workspace.getLeaf().openFile(exportFile);
-            }
-        } catch (err) {
-            new Notice("Failed to export highlights to JSON.");
-            console.error(err);
-        }
-    }
-
-    async exportHighlightsCSV(view: MarkdownView) {
-        try {
-            const exportPath = await exportHighlightsToCSV(this.app, view.file);
-            new Notice(`Highlights exported to ${exportPath}`);
-            const exportFile = this.app.vault.getAbstractFileByPath(exportPath);
-            if (exportFile instanceof TFile) {
-                await this.app.workspace.getLeaf().openFile(exportFile);
-            }
-        } catch (err) {
-            new Notice("Failed to export highlights to CSV.");
-            console.error(err);
-        }
-    }
-
-    async copyAsQuote(view: MarkdownView, selectionSnapshot?: SelectionSnapshot | null) {
-        const sel = window.getSelection();
-        const request = this.buildSelectionRequest(view, selectionSnapshot);
-        if (!request) {
-            new Notice("No text selected.");
-            return;
-        }
-        const frontmatter =
-            (this.app.metadataCache.getFileCache(view.file)?.frontmatter as Record<string, unknown>) || {};
-        const quote = this.expandQuoteTemplate(view.file, request.snippet, frontmatter);
-        const copied = await this.writeClipboardText(quote);
-        if (!copied) {
-            new Notice("Failed to copy quote.");
-            return;
-        }
-        new Notice("Copied as quote!");
-        sel?.removeAllRanges();
-    }
-
     async applyColorHighlight(
         view: MarkdownView,
         color: HighlightColor,
-        autoTag = "",
         selectionSnapshot?: SelectionSnapshot | null,
         toggle = false
     ) {
@@ -1361,62 +781,13 @@ export default class ReadingHighlighterPlugin extends Plugin {
                 result.start,
                 result.end,
                 toggle ? "toggle-color" : "color",
-                color,
-                autoTag
+                color
             ))
         )
             return;
         this.restoreScroll(view, scrollPos);
         sel?.removeAllRanges();
         new Notice("Highlighted!");
-    }
-
-    /**
-     * Note where the active reading view has scrolled to, once it stops.
-     *
-     * Saving on `active-leaf-change` alone read the note being *opened*, not
-     * the one being left, and missed navigation within a tab altogether.
-     */
-    onReadingScroll(evt: Event) {
-        if (!this.settings.enableReadingProgress) return;
-        const view = this.getActiveReadingView();
-        const target = evt.target as Node | null;
-        if (!view?.file || !target || !view.containerEl.contains(target)) return;
-        this.pendingProgress = { view, file: view.file };
-        if (this.progressTimer !== null) window.clearTimeout(this.progressTimer);
-        this.progressTimer = window.setTimeout(() => this.flushReadingProgress(), 800);
-    }
-
-    flushReadingProgress() {
-        if (this.progressTimer !== null) {
-            window.clearTimeout(this.progressTimer);
-            this.progressTimer = null;
-        }
-        const pending = this.pendingProgress;
-        this.pendingProgress = null;
-        // A tab that has moved on to another note scrolls for that note now.
-        if (!pending || pending.view.file !== pending.file || !this.settings.enableReadingProgress) return;
-        let y = 0;
-        try {
-            y = getScroll(pending.view).y;
-        } catch {
-            return;
-        }
-        const path = pending.file.path;
-        if (y > 0) this.settings.readingPositions[path] = y;
-        else if (path in this.settings.readingPositions) delete this.settings.readingPositions[path];
-        else return;
-        void this.saveData(this.settings);
-    }
-
-    async resumeReading(view: MarkdownView) {
-        const pos = this.settings.readingPositions[view.file.path];
-        if (pos) {
-            applyScroll(view, { x: 0, y: pos });
-            new Notice("Resumed reading position.");
-        } else {
-            new Notice("No saved position for this file.");
-        }
     }
 
     async activateNavigatorView() {
@@ -1433,40 +804,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
         void this.app.workspace.revealLeaf(leaf);
     }
 
-    /**
-     * Fill the quote template.
-     *
-     * Whatever precedes `{{text}}` on its line (`> ` in the default) starts
-     * every line of the selection, so a quote of several lines stays one
-     * blockquote. The selection used to arrive already quoted, which with the
-     * default template nested its first line one level deeper (`> > `). A
-     * template with no `>` before `{{text}}` still gets each line quoted.
-     */
-    expandQuoteTemplate(file: TFile, text: string, frontmatter: Record<string, unknown> = {}) {
-        const sourceUrl = toDisplayString(frontmatter.url || frontmatter.source || frontmatter.link).replace(
-            /#:~:text=[^&]+(&|$)/,
-            ""
-        );
-        const timestamp = this.formatTimestamp(new Date());
-        const variables: Record<string, string> = {
-            file: file.basename,
-            path: file.path,
-            date: timestamp.split("T")[0],
-            time: timestamp,
-            domain: this.extractDomain(sourceUrl),
-            author: this.normalizeFrontmatterValue(
-                frontmatter.author || frontmatter.authors || frontmatter.creator || ""
-            ),
-        };
-        const lines = text.split(/\r?\n/);
-        return this.settings.quoteTemplate
-            .replace(/{{(file|path|date|time|domain|author)}}/g, (_match: string, key: string) => variables[key] || "")
-            .replace(/^(.*?){{text}}/gm, (_match: string, prefix: string) => {
-                if (/>\s*$/.test(prefix)) return prefix + lines.join(`\n${prefix}`);
-                return prefix + lines.map((line) => `> ${line}`).join("\n");
-            });
-    }
-
     async writeClipboardText(text: string) {
         try {
             await navigator.clipboard.writeText(text);
@@ -1475,46 +812,6 @@ export default class ReadingHighlighterPlugin extends Plugin {
             console.error("Failed to write to clipboard", e);
             return false;
         }
-    }
-
-    formatTimestamp(date: Date) {
-        const pad = (value: number) => String(Math.trunc(Math.abs(value))).padStart(2, "0");
-        const offsetMinutes = -date.getTimezoneOffset();
-        const sign = offsetMinutes >= 0 ? "+" : "-";
-        const offsetHours = pad(offsetMinutes / 60);
-        const offsetRemainder = pad(offsetMinutes % 60);
-        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${sign}${offsetHours}:${offsetRemainder}`;
-    }
-
-    extractDomain(url: string) {
-        if (!url) return "";
-        try {
-            const parsed = new URL(url);
-            const hostname = parsed.hostname;
-            if (hostname === "localhost" || hostname === "127.0.0.1" || /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) {
-                return hostname;
-            }
-            const hostParts = hostname.split(".");
-            if (hostParts.length > 2) {
-                const lastTwo = hostParts.slice(-2).join(".");
-                if (/^(co|com|org|net|edu|gov|mil)\.[a-z]{2}$/i.test(lastTwo)) {
-                    return hostParts.slice(-3).join(".");
-                }
-            }
-            return hostParts.slice(-2).join(".");
-        } catch {
-            return "";
-        }
-    }
-
-    normalizeFrontmatterValue(value: unknown) {
-        if (Array.isArray(value)) {
-            return (value as unknown[])
-                .map((item) => String(item as string).trim())
-                .filter(Boolean)
-                .join(", ");
-        }
-        return toDisplayString(value).trim();
     }
 
     splitMarkdownLine(line: string) {
@@ -1557,40 +854,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
         return lineBreak === -1 ? raw.length : lineBreak;
     }
 
-    needsYamlQuotes(value: string) {
-        const trimmedValue = String(value || "").trim();
-        return (
-            FRONTMATTER_NEEDS_QUOTES_RE.test(trimmedValue) ||
-            /^\d/.test(trimmedValue) ||
-            FRONTMATTER_RESERVED_RE.test(trimmedValue)
-        );
-    }
-
-    normalizeTagForComparison(tag: string) {
-        return String(tag || "")
-            .trim()
-            .replace(/^['"]|['"]$/g, "")
-            .replace(/^#/, "")
-            .replace(/\s+/g, "_");
-    }
-
-    formatFrontmatterTag(tag: string) {
-        const normalized = this.normalizeTagForComparison(tag);
-        if (!normalized) {
-            return "";
-        }
-        return this.needsYamlQuotes(normalized) ? `"${normalized.replace(/"/g, '\\"')}"` : normalized;
-    }
-
-    async applyMarkdownModification(
-        file: TFile,
-        raw: string,
-        start: number,
-        end: number,
-        mode: string,
-        payload = "",
-        autoTag = ""
-    ) {
+    async applyMarkdownModification(file: TFile, raw: string, start: number, end: number, mode: string, payload = "") {
         if (!raw) {
             raw = await this.app.vault.read(file);
         }
@@ -1601,37 +865,9 @@ export default class ReadingHighlighterPlugin extends Plugin {
                 : touched
                   ? touched.color
                   : this.settings.defaultHighlightColor || null;
-        let fullTag = "";
-        const sanitizeTag = (t: string) => t.trim().replace(/^#/, "").replace(/\s+/g, "_");
-        if (mode === "tag" && payload) {
-            const prefix = this.settings.defaultTagPrefix ? sanitizeTag(this.settings.defaultTagPrefix) : "";
-            const cleanPayload = payload
-                .split(/\s+/)
-                .map(sanitizeTag)
-                .filter((t) => t)
-                .map((t) => `#${t}`)
-                .join(" ");
-            if (prefix) {
-                fullTag = `#${sanitizeTag(prefix)} ${cleanPayload}`;
-            } else {
-                fullTag = cleanPayload;
-            }
-        } else if (
-            (mode === "highlight" || mode === "color" || mode.startsWith("toggle-")) &&
-            this.settings.defaultTagPrefix
-        ) {
-            const autoTagSetting = sanitizeTag(this.settings.defaultTagPrefix);
-            if (autoTagSetting) {
-                fullTag = `#${autoTagSetting}`;
-            }
-        }
-        if (autoTag) {
-            const cleanAutoTag = sanitizeTag(autoTag);
-            fullTag = fullTag ? `${fullTag} #${cleanAutoTag}` : `#${cleanAutoTag}`;
-        }
         let newContent: string;
         try {
-            newContent = editHighlightRange(raw, start, end, mode, color, fullTag);
+            newContent = editHighlightRange(raw, start, end, mode, color);
         } catch (error) {
             new Notice(error instanceof Error ? error.message : "The selection cannot be highlighted safely.");
             return false;
@@ -1641,48 +877,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
             new Notice("The note changed while highlighting. Select the text again; those edits were preserved.");
             return false;
         }
-        const removed =
-            mode === "remove" ||
-            (mode.startsWith("toggle-") &&
-                parseHighlights(newContent).highlights.length < parseHighlights(raw).highlights.length);
-        if (!removed && this.settings.enableFrontmatterTag && this.settings.frontmatterTag) {
-            const targetTag = this.formatFrontmatterTag(this.settings.frontmatterTag);
-            if (targetTag) {
-                try {
-                    await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
-                        if (frontmatter.tags === undefined || frontmatter.tags === null) {
-                            frontmatter.tags = [targetTag];
-                            return;
-                        }
-                        if (Array.isArray(frontmatter.tags)) {
-                            const existingTags = (frontmatter.tags as unknown[]).map((tag) =>
-                                this.normalizeTagForComparison(String(tag as string))
-                            );
-                            if (!existingTags.includes(this.normalizeTagForComparison(targetTag))) {
-                                (frontmatter.tags as unknown[]).push(targetTag);
-                            }
-                        } else if (typeof frontmatter.tags === "string") {
-                            const existingTags = frontmatter.tags.includes(",")
-                                ? frontmatter.tags.split(",").map((t) => t.trim())
-                                : frontmatter.tags.split(/\s+/).map((t) => t.trim());
-                            const cleanTags = existingTags.filter(
-                                (tag) =>
-                                    this.normalizeTagForComparison(tag) !== this.normalizeTagForComparison(targetTag) &&
-                                    tag !== ""
-                            );
-                            if (cleanTags.length === existingTags.length) {
-                                frontmatter.tags = [...cleanTags, targetTag];
-                            }
-                        }
-                    });
-                } catch (e) {
-                    console.error("Superier Highlighter: Failed to inject frontmatter tag.", e);
-                }
-            }
-        }
-        // Read back rather than reuse newContent: the frontmatter step above
-        // may have written to the note again.
-        await this.recordUndoResult(file);
+        await this.recordUndoResult(file, finalContent);
         return true;
     }
 
@@ -1720,13 +915,9 @@ export default class ReadingHighlighterPlugin extends Plugin {
             }
             const mockSnapshot = { text: correctedText, range: null };
             if (actionType === "applyColorHighlight" && isHighlightColor(payload)) {
-                await this.applyColorHighlight(view, payload, "", mockSnapshot);
+                await this.applyColorHighlight(view, payload, mockSnapshot);
             } else if (actionType === "highlightSelection") {
                 await this.highlightSelection(view, mockSnapshot);
-            } else if (actionType === "tagSelection") {
-                await this.tagSelection(view, mockSnapshot);
-            } else if (actionType === "annotateSelection") {
-                await this.annotateSelection(view, mockSnapshot);
             } else if (actionType === "removeHighlightSelection") {
                 await this.removeHighlightSelection(view, mockSnapshot);
             }
@@ -1776,6 +967,11 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
                         },
                     },
                     {
+                        name: "Enable smart paragraph selection",
+                        desc: "Snap selections inside a paragraph, list item, heading, or blockquote to the entire block.",
+                        control: { type: "toggle", key: "enableSmartParagraphSelection" },
+                    },
+                    {
                         name: "Highlight colour",
                         desc: HIGHLIGHT_COLOUR_DESC,
                         control: { type: "dropdown", key: "defaultHighlightColor", options: colourOptions },
@@ -1801,85 +997,8 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
             },
             {
                 type: "group",
-                heading: "Tags",
-                items: [
-                    {
-                        name: "Default tag prefix",
-                        desc: "Automatically add this tag to every highlight (e.g., 'book').",
-                        control: { type: "text", key: "defaultTagPrefix", placeholder: "Book" },
-                    },
-                    {
-                        name: "Smart tag suggestions",
-                        desc: "Suggest tags based on recent usage, folder, and frontmatter.",
-                        control: { type: "toggle", key: "enableSmartTagSuggestions" },
-                    },
-                    {
-                        name: "Enable smart paragraph selection",
-                        desc: "Snap selections inside a paragraph, list item, heading, or blockquote to the entire block.",
-                        control: { type: "toggle", key: "enableSmartParagraphSelection" },
-                    },
-                ],
-            },
-            {
-                type: "group",
-                heading: "Quote template",
-                items: [
-                    {
-                        name: "Quote format",
-                        desc: "Template for copying text as quote. Variables: {{text}}, {{file}}, {{path}}, {{date}}, {{time}}, {{domain}}, {{author}}",
-                        control: { type: "textarea", key: "quoteTemplate" },
-                    },
-                ],
-            },
-            {
-                type: "group",
-                heading: "Annotations",
-                items: [
-                    {
-                        name: "Enable annotations",
-                        desc: "Add comments to selections as footnotes.",
-                        control: { type: "toggle", key: "enableAnnotations" },
-                    },
-                    {
-                        name: "Show annotation button",
-                        desc: "Show the annotation button in the toolbar.",
-                        control: { type: "toggle", key: "showAnnotationButton" },
-                    },
-                ],
-            },
-            {
-                type: "group",
-                heading: "Reading progress",
-                items: [
-                    {
-                        name: "Track reading progress",
-                        desc: "Remember scroll position when leaving a file.",
-                        control: { type: "toggle", key: "enableReadingProgress" },
-                    },
-                    {
-                        name: "Clear reading positions",
-                        desc: `Currently tracking ${Object.keys(s.readingPositions).length} file(s).`,
-                        action: (el: HTMLElement) => {
-                            new Setting(el).addButton((button) =>
-                                button.setButtonText("Clear all").onClick(async () => {
-                                    this.plugin.settings.readingPositions = {};
-                                    await this.plugin.saveSettings();
-                                    new Notice("Reading positions cleared.");
-                                    this.refreshDefinitions();
-                                })
-                            );
-                        },
-                    },
-                ],
-            },
-            {
-                type: "group",
                 heading: "Toolbar buttons",
-                items: [
-                    { name: "Show tag button", control: { type: "toggle", key: "showTagButton" } },
-                    { name: "Show quote button", control: { type: "toggle", key: "showQuoteButton" } },
-                    { name: "Show remove button", control: { type: "toggle", key: "showRemoveButton" } },
-                ],
+                items: [{ name: "Show remove button", control: { type: "toggle", key: "showRemoveButton" } }],
             },
             {
                 type: "group",
@@ -1894,54 +1013,6 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
                         name: "Show button tooltips",
                         desc: "Show tooltips when hovering over toolbar buttons.",
                         control: { type: "toggle", key: "showTooltips" },
-                    },
-                ],
-            },
-            {
-                type: "group",
-                heading: "Frontmatter integration",
-                items: [
-                    {
-                        name: "Auto-tag highlight in frontmatter",
-                        desc: "Automatically inject a specific tag into the note's frontmatter whenever you highlight text.",
-                        control: { type: "toggle", key: "enableFrontmatterTag" },
-                    },
-                    {
-                        name: "Frontmatter highlight tag",
-                        desc: "The tag to add (e.g. 'resaltados'). Do not include the # symbol.",
-                        visible: () => this.plugin.settings.enableFrontmatterTag,
-                        control: { type: "text", key: "frontmatterTag", placeholder: "Resaltados" },
-                    },
-                ],
-            },
-            {
-                type: "group",
-                heading: "Research view",
-                items: [
-                    {
-                        name: "Scan when research view opens",
-                        desc: "Read notes in the selected folders when opening or restoring research view. Off by default; use Scan folders to start manually.",
-                        control: { type: "toggle", key: "researchAutoScan" },
-                    },
-                    {
-                        name: "Include folders",
-                        desc: "Vault-relative folder paths, one per line. Includes subfolders. Leave empty to search all Markdown notes. No wildcards or parent paths.",
-                        control: {
-                            type: "textarea",
-                            key: "researchFolders",
-                            placeholder: "Research\nReading notes",
-                            rows: 3,
-                        },
-                    },
-                    {
-                        name: "Exclude folders",
-                        desc: "Vault-relative folder paths, one per line. Exclusions take priority; notes in these folders are not read or included in research exports.",
-                        control: {
-                            type: "textarea",
-                            key: "researchExcludedFolders",
-                            placeholder: "Private\nArchive",
-                            rows: 3,
-                        },
                     },
                 ],
             },
@@ -2002,10 +1073,6 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
         if (colour) {
             const entry = this.plugin.settings.semanticColors[Number(colour[1])];
             if (entry) entry.meaning = asText;
-        } else if (key === "defaultTagPrefix") {
-            settings[key] = asText.replace(/\s+/g, "_").replace(/^#/, "");
-        } else if (key === "frontmatterTag") {
-            settings[key] = asText.replace(/^#/, "");
         } else if (key === "defaultHighlightColor") {
             settings[key] = isHighlightColor(asText) ? asText : "";
         } else {

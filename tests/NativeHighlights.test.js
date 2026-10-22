@@ -10,9 +10,7 @@ import {
     mergeAdjacentHighlightsInRaw,
     updateHighlightColorInRaw,
 } from "../src/utils/highlights";
-import { exportHighlightsToMD, exportHighlightsToJSON } from "../src/utils/export";
 import ReadingHighlighterPlugin from "../src/main";
-import { TFile } from "./obsidian-stub.js";
 
 describe("parsing", () => {
     it("reads the colour and keeps the emoji out of the text", () => {
@@ -48,7 +46,7 @@ describe("parsing", () => {
 
     it("finds a footnote after a coloured highlight", () => {
         const [h] = parseHighlights("==🔴uno==[^1]\n\n[^1]: nota").highlights;
-        expect(h).toMatchObject({ footnoteId: "1", annotation: "nota" });
+        expect(h).toMatchObject({ footnoteId: "1" });
     });
 });
 
@@ -192,64 +190,5 @@ describe("settings from versions that coloured with HTML", () => {
             "purple",
         ]);
         expect(settings.defaultHighlightColor).toBe("");
-    });
-});
-
-describe("exports", () => {
-    function fakeApp(raw, path = "note.md") {
-        let current = raw;
-        const created = {};
-        return {
-            app: {
-                vault: {
-                    read: async () => current,
-                    modify: async (_f, c) => {
-                        current = c;
-                    },
-                    create: async (p, c) => {
-                        created[p] = c;
-                    },
-                    getAbstractFileByPath: () => null,
-                },
-            },
-            file: Object.assign(new TFile(path), {
-                parent: { path: path.includes("/") ? path.replace(/\/[^/]*$/, "") : "/" },
-            }),
-            current: () => current,
-            created,
-        };
-    }
-
-    it("writes beside a note at the vault root without a leading //", async () => {
-        const t = fakeApp("==uno==");
-        const path = await exportHighlightsToMD(t.app, t.file);
-        expect(path).toBe("note - Highlights.md");
-    });
-
-    it("gives a table one block id on the line after it, not a stray cell", async () => {
-        const raw = "| a | b |\n| --- | --- |\n| ==uno== | ==dos== |\n| tres | ==cuatro== |\n\nFin.";
-        const t = fakeApp(raw);
-        await exportHighlightsToMD(t.app, t.file);
-        const lines = t.current().split("\n");
-        expect(lines.slice(0, 4)).toEqual(raw.split("\n").slice(0, 4));
-        expect(lines[4]).toMatch(/^\^[a-z0-9]+$/);
-        const embeds = Object.values(t.created)[0].match(/!\[\[[^\]]+\]\]/g);
-        expect(embeds).toEqual([`![[note#${lines[4]}]]`]);
-    });
-
-    it("keeps CRLF line endings", async () => {
-        const t = fakeApp("==uno==\r\nlinea\r\n==dos==");
-        await exportHighlightsToMD(t.app, t.file);
-        expect(t.current()).toMatch(/^==uno== \^[a-z0-9]+\r\nlinea\r\n==dos== \^[a-z0-9]+$/);
-    });
-
-    it("exports the native colour", async () => {
-        const t = fakeApp("==🟡uno== ==dos==");
-        await exportHighlightsToJSON(t.app, t.file);
-        const data = JSON.parse(Object.values(t.created)[0]);
-        expect(data.highlights.map((h) => [h.text, h.color])).toEqual([
-            ["uno", "yellow"],
-            ["dos", null],
-        ]);
     });
 });
