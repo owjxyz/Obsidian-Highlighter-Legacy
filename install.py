@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the latest stable Superier Highlighter release into an existing, closed Obsidian vault."""
+"""Install the latest stable Superior Highlighter release into an existing, closed Obsidian vault."""
 import argparse
 from datetime import datetime
 import hashlib
@@ -11,9 +11,9 @@ import tempfile
 import urllib.request
 from urllib.parse import quote
 
-PLUGIN = "superier-highlighter"
+PLUGIN = "superior-highlighter"
 LEGACY = "reader-highlighter-tags"
-REPOSITORY = "owjxyz/Obsidian-Superier-Highlighter"
+REPOSITORY = "owjxyz/Obsidian-Superior-Highlighter"
 ASSETS = ("main.js", "manifest.json", "styles.css")
 
 
@@ -22,7 +22,7 @@ def json_bytes(value):
 
 
 def download(url):
-    request = urllib.request.Request(url, headers={"User-Agent": "Superier-Highlighter-Installer"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Superior-Highlighter-Installer"})
     with urllib.request.urlopen(request, timeout=30) as response:
         return response.read()
 
@@ -99,7 +99,7 @@ def install(vault):
     if not changes:
         print("Already installed; no files changed.")
         return None
-    backup = config / "superier-highlighter-backups" / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup = config / "superior-highlighter-backups" / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     backup.resolve().relative_to(config)
     backup.mkdir(parents=True)
     for path in changes:
@@ -126,7 +126,7 @@ def install(vault):
             else:
                 atomic_write(path, before[path])
         raise
-    print(f"Installed Superier Highlighter {version}. Reopen Obsidian.")
+    print(f"Installed Superior Highlighter {version}. Reopen Obsidian.")
     print(f"Backup: {backup}")
     return backup
 

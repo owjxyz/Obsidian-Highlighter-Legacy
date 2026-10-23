@@ -15,7 +15,7 @@ import { parseHighlights, findHighlightById, removeHighlightFromRaw } from "../u
 import { HighlightEditModal } from "../modals/HighlightEditModal";
 import { BulkRecolorModal } from "../modals/BulkRecolorModal";
 
-export const HIGHLIGHT_NAVIGATOR_VIEW = "superier-highlighter-navigator";
+export const HIGHLIGHT_NAVIGATOR_VIEW = "superior-highlighter-navigator";
 
 /** Highlights in the current note, with search and bulk actions. */
 export class HighlightNavigatorView extends ItemView {
@@ -292,7 +292,7 @@ export class HighlightNavigatorView extends ItemView {
             }
             await this.refresh(true);
         } catch (err) {
-            console.error("Superier Highlighter: failed to remove highlight.", err);
+            console.error("Superior Highlighter: failed to remove highlight.", err);
             new Notice("Failed to remove highlight.");
         }
     }

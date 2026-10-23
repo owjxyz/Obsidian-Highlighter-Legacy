@@ -1,6 +1,6 @@
 {
-    "id": "superier-highlighter",
-    "name": "Superier Highlighter",
+    "id": "superior-highlighter",
+    "name": "Superior Highlighter",
     "version": "0.1.0",
     "minAppVersion": "1.14.0",
     "description": "Highlight exact selections in Reading View using surrounding context and native colours.",
