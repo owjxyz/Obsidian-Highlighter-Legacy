@@ -16,11 +16,21 @@ For the terminal installer, follow the instructions below.
 
 Close Obsidian, open a terminal in your vault folder, and run:
 
+**macOS (Terminal)**
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superior-Highlighter/main/install.py | python3 -
 ```
 
-- An optional vault path can be added after `python3 -`.
+**Windows (PowerShell)**
+
+```powershell
+curl.exe -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superior-Highlighter/main/install.py | py -3 -
+```
+
+Use `curl.exe` explicitly: Windows PowerShell 5.1 aliases `curl` to `Invoke-WebRequest`, which does not accept `-fsSL`. If `py` is unavailable but `python --version` reports Python 3.9+, replace `py -3 -` with `python -`.
+
+- An optional vault path can be added after `python3 -` (macOS) or `py -3 -` (Windows). Quote paths containing spaces, for example `python3 - "/Users/you/Obsidian Vault"` or `py -3 - "C:\Users\you\Documents\Obsidian Vault"` at the end of the command.
 - Requires Python 3.9+. Resolves the latest stable release on every run and verifies checksums for all three release files.
 - Backs up changed files, preserves other settings, and migrates Reader Highlighter Tags plugin settings. The old plugin is disabled; its files stay in place.
 - Does not add or change shortcuts. Apply personal shortcuts through [Obsidian Vault Init](https://github.com/owjxyz/Obsidian-Vault-Init).
@@ -75,6 +85,8 @@ npm run build
 python3 test_metadata.py
 python3 test_install.py
 ```
+
+On Windows PowerShell, use `py -3 test_metadata.py` and `py -3 test_install.py` for the last two commands (or `python` instead of `py -3` if configured as described above). The `npm` commands are the same on both platforms.
 
 ## Credits
 

@@ -16,11 +16,21 @@ Obsidian의 **설정 → 커뮤니티 플러그인 → 탐색**에서 **WooJIN O
 
 Obsidian을 종료하고 대상 vault 폴더에서 실행합니다.
 
+**macOS (터미널)**
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superior-Highlighter/main/install.py | python3 -
 ```
 
-- 다른 vault에 적용하려면 `python3 -` 뒤에 경로를 추가합니다.
+**Windows (PowerShell)**
+
+```powershell
+curl.exe -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superior-Highlighter/main/install.py | py -3 -
+```
+
+반드시 `curl.exe`로 실행합니다. Windows PowerShell 5.1에서 `curl`은 `Invoke-WebRequest`의 별칭이므로 `-fsSL` 옵션을 인식하지 못합니다. `py`를 찾을 수 없지만 `python --version`이 Python 3.9 이상을 표시한다면 `py -3 -`를 `python -`로 바꿉니다.
+
+- 다른 vault에 적용하려면 `python3 -`(macOS) 또는 `py -3 -`(Windows) 뒤에 경로를 추가합니다. 공백이 있는 경로는 따옴표로 감쌉니다. 명령어 끝부분 예: `python3 - "/Users/you/Obsidian Vault"` 또는 `py -3 - "C:\Users\you\Documents\Obsidian Vault"`.
 - Python 3.9 이상이 필요합니다. 실행할 때마다 최신 정식 릴리스를 조회하고 배포 파일 세 개의 체크섬을 검증합니다.
 - 변경할 파일을 백업하고 다른 설정을 보존합니다. Reader Highlighter Tags의 플러그인 설정을 이전하며, 기존 플러그인은 비활성화하고 파일은 남겨둡니다.
 - 단축키는 추가하거나 변경하지 않습니다. 개인 단축키는 [Obsidian Vault Init](https://github.com/owjxyz/Obsidian-Vault-Init)에서 적용합니다.
@@ -75,6 +85,8 @@ npm run build
 python3 test_metadata.py
 python3 test_install.py
 ```
+
+Windows PowerShell에서는 마지막 두 명령어를 `py -3 test_metadata.py`, `py -3 test_install.py`로 실행합니다(위 안내에 따라 `python`을 사용하는 환경에서는 `py -3` 대신 `python` 사용). `npm` 명령어는 두 운영체제에서 동일합니다.
 
 ## 원본
 
