@@ -112,7 +112,8 @@ export default class ReadingHighlighterPlugin extends Plugin {
         this.addSettingTab(new ReadingHighlighterSettingTab(this.app, this));
         this.registerCommands();
 
-        this.registerWindowEvents(activeDocument);
+        // Preferences may have focus when the plugin is enabled.
+        this.registerWindowEvents(this.floatingManager.targetDocument());
         // A popout window has a document of its own, which fires its own
         // selection events.
         this.registerEvent(this.app.workspace.on("window-open", (win) => this.registerWindowEvents(win.doc)));

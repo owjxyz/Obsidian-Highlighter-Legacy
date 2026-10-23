@@ -3071,7 +3071,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian6.Plugin {
     this.registerView(HIGHLIGHT_NAVIGATOR_VIEW, (leaf) => new HighlightNavigatorView(leaf, this));
     this.addSettingTab(new ReadingHighlighterSettingTab(this.app, this));
     this.registerCommands();
-    this.registerWindowEvents(activeDocument);
+    this.registerWindowEvents(this.floatingManager.targetDocument());
     this.registerEvent(this.app.workspace.on("window-open", (win) => this.registerWindowEvents(win.doc)));
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {

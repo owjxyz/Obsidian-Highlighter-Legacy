@@ -22,6 +22,7 @@ async function setup(opts = {}) {
         vault: { read: async () => "", modify: async () => {}, getAbstractFileByPath: () => null },
         metadataCache: { getFileCache: () => ({ embeds: [] }) },
         workspace: {
+            containerEl: content,
             getActiveViewOfType: () => (opts.noView ? null : view),
             getLeavesOfType: () => [],
             on: () => {},
@@ -29,10 +30,21 @@ async function setup(opts = {}) {
         },
     };
     const plugin = new ReadingHighlighterPlugin(app, { id: "t", version: "0" });
-    await plugin.loadSettings();
-    plugin.floatingManager = new FloatingManager(plugin);
-    plugin.registerDomEvent(doc, "selectionchange", () => plugin.floatingManager.handleSelection());
-    plugin.floatingManager.load();
+    const settingsWindow = opts.focusedSettings ? new JSDOM("<!doctype html><html><body></body></html>").window : null;
+    if (settingsWindow) vi.stubGlobal("activeDocument", settingsWindow.document);
+    try {
+        if (settingsWindow) {
+            await plugin.onload();
+        } else {
+            await plugin.loadSettings();
+            plugin.floatingManager = new FloatingManager(plugin);
+            plugin.registerDomEvent(doc, "selectionchange", () => plugin.floatingManager.handleSelection());
+            plugin.floatingManager.load();
+        }
+    } finally {
+        vi.stubGlobal("activeDocument", doc);
+        settingsWindow?.close();
+    }
     return { window, doc, content, plugin, setMode: (m) => (mode = m) };
 }
 function select(ctx, fire = true) {
@@ -51,6 +63,18 @@ const visible = (ctx) => {
 };
 
 describe("scenarios", () => {
+    it.each([false, true])(
+        "selecting a note after enabling from settings shows the toolbar (no view at load: %s)",
+        async (noView) => {
+            const opts = { focusedSettings: true, noView };
+            const ctx = await setup(opts);
+            opts.noView = false;
+            select(ctx);
+            expect(visible(ctx)).toBe(true);
+            expect(ctx.plugin.floatingManager.containerEl.ownerDocument).toBe(ctx.doc);
+        }
+    );
+
     it("I: text selected outside the note, in a hover preview, leaves the toolbar hidden", async () => {
         const ctx = await setup();
         const popover = ctx.doc.body.createDiv({ cls: "popover hover-popover" });
