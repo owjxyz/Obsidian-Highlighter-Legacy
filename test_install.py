@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import install
 
-assert install.REPOSITORY == "owjxyz/Obsidian-Superior-Highlighter"
+assert install.REPOSITORY == "owjxyz/Obsidian-Highlighter-Legacy"
 
 
 assets = {

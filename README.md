@@ -6,7 +6,7 @@ Highlight exactly what you select in Obsidian Reading View. Matches the selected
 
 **Author:** [WooJIN OH (owjxyz)](https://github.com/owjxyz)
 
-[GitHub repository](https://github.com/owjxyz/Obsidian-Superior-Highlighter) · [Obsidian community listing](https://obsidian.md/plugins?id=superier-highlighter)
+[GitHub repository](https://github.com/owjxyz/Obsidian-Highlighter-Legacy) · [Obsidian community listing](https://obsidian.md/plugins?id=superier-highlighter)
 
 [KOREAN](README.ko.md) · [ENGLISH](README.md)
 
@@ -21,13 +21,13 @@ Close Obsidian, open a terminal in your vault folder, and run:
 **macOS (Terminal)**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superior-Highlighter/main/install.py | python3 -
+curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Highlighter-Legacy/main/install.py | python3 -
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-curl.exe -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superior-Highlighter/main/install.py | py -3 -
+curl.exe -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Highlighter-Legacy/main/install.py | py -3 -
 ```
 
 Use `curl.exe` explicitly: Windows PowerShell 5.1 aliases `curl` to `Invoke-WebRequest`, which does not accept `-fsSL`. If `py` is unavailable but `python --version` reports Python 3.9+, replace `py -3 -` with `python -`.
@@ -39,7 +39,7 @@ Use `curl.exe` explicitly: Windows PowerShell 5.1 aliases `curl` to `Invoke-WebR
 - Existing Superior Highlighter (Legacy) settings are preserved.
 - Updates happen when you run the script; it does not install a background updater. Preview releases are excluded. If release lookup or verification fails, the vault stays unchanged.
 
-Manual installation: download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/owjxyz/Obsidian-Superior-Highlighter/releases/latest), place them in `.obsidian/plugins/superier-highlighter/`, then enable **Superior Highlighter (Legacy)**.
+Manual installation: download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/owjxyz/Obsidian-Highlighter-Legacy/releases/latest), place them in `.obsidian/plugins/superier-highlighter/`, then enable **Superior Highlighter (Legacy)**.
 
 ## Shortcuts
 
@@ -73,7 +73,7 @@ The plugin reads and edits the note containing the selection, including the sour
 
 The release workflow builds and tests main-branch updates and version tags in GitHub Actions, checks their committed checksums, and generates GitHub artifact attestations for `main.js`, `manifest.json`, and `styles.css`. Only a version tag prepares a release draft using those same files; publishing remains a separate, deliberate step. Manually running **Verify release provenance** builds and attests the selected ref without creating a release when that ref is a branch.
 
-For a release produced by this workflow, download its assets and verify their build provenance with `gh attestation verify main.js --repo owjxyz/Obsidian-Superior-Highlighter` (repeat for `manifest.json` and `styles.css`). Only these three files are attached to new releases. The installer verifies GitHub Releases API SHA-256 digests; `SHA256SUMS` stays in the repository for CI verification. Existing releases are not changed by adding the workflow.
+For a release produced by this workflow, download its assets and verify their build provenance with `gh attestation verify main.js --repo owjxyz/Obsidian-Highlighter-Legacy` (repeat for `manifest.json` and `styles.css`). Only these three files are attached to new releases. The installer verifies GitHub Releases API SHA-256 digests; `SHA256SUMS` stays in the repository for CI verification. Existing releases are not changed by adding the workflow.
 
 ## Develop
 

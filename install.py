@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 PLUGIN = "superier-highlighter"
 LEGACY = "reader-highlighter-tags"
-REPOSITORY = "owjxyz/Obsidian-Superior-Highlighter"
+REPOSITORY = "owjxyz/Obsidian-Highlighter-Legacy"
 ASSETS = ("main.js", "manifest.json", "styles.css")
 
 
