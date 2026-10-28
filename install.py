@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the latest stable Superior Highlighter release into an existing, closed Obsidian vault."""
+"""Install the latest stable Superior Highlighter (Legacy) release into an existing, closed Obsidian vault."""
 import argparse
 from datetime import datetime
 import hashlib
@@ -11,9 +11,9 @@ import tempfile
 import urllib.request
 from urllib.parse import quote
 
-PLUGIN = "superior-highlighter"
+PLUGIN = "superier-highlighter"
 LEGACY = "reader-highlighter-tags"
-REPOSITORY = "owjxyz/Obsidian-Superior-Highlighter"
+REPOSITORY = "owjxyz/Obsidian-Superier-Highlighter"
 ASSETS = ("main.js", "manifest.json", "styles.css")
 
 
@@ -126,7 +126,7 @@ def install(vault):
             else:
                 atomic_write(path, before[path])
         raise
-    print(f"Installed Superior Highlighter {version}. Reopen Obsidian.")
+    print(f"Installed Superior Highlighter (Legacy) {version}. Reopen Obsidian.")
     print(f"Backup: {backup}")
     return backup
 
