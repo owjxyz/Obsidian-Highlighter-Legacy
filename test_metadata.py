@@ -5,8 +5,8 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent
 manifest = json.loads((root / "manifest.json").read_text())
-assert manifest["id"] == "superior-highlighter"
-assert manifest["name"] == "Superior Highlighter"
+assert manifest["id"] == "superier-highlighter"
+assert manifest["name"] == "Superior Highlighter (Legacy)"
 assert manifest["author"] == "WooJIN OH"
 assert manifest["authorUrl"] == "https://github.com/owjxyz"
 

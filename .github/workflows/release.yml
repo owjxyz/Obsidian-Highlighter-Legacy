@@ -78,4 +78,4 @@ jobs:
                   gh attestation verify manifest.json --repo "$GH_REPO"
                   gh attestation verify styles.css --repo "$GH_REPO"
                   gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css SHA256SUMS \
-                    --draft --verify-tag --title "Superior Highlighter $GITHUB_REF_NAME" --generate-notes
+                    --draft --verify-tag --title "Superior Highlighter (Legacy) $GITHUB_REF_NAME" --generate-notes
