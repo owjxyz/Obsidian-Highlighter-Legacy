@@ -1,9 +1,12 @@
 """Run with python3 test_install.py; all installations use temporary vaults."""
+import copy
 import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import install
+
+assert install.REPOSITORY == "owjxyz/Obsidian-Superior-Highlighter"
 
 
 assets = {
@@ -12,15 +15,20 @@ assets = {
     "manifest.json": json.dumps({"id": install.PLUGIN, "version": "9.8.7"}).encode(),
 }
 checksums = {name: hashlib.sha256(content).hexdigest() for name, content in assets.items()}
-release = {"tag_name": "v9.8.7", "assets": [{"name": name} for name in [*assets, "SHA256SUMS"]]}
+release = {"tag_name": "v9.8.7", "assets": [
+    {"name": name, "digest": "sha256:" + checksums[name]} for name in assets
+]}
+
+
+def sync_digests():
+    for asset in release["assets"]:
+        asset["digest"] = "sha256:" + checksums[asset["name"]]
 
 def fixture_download(url):
     if url == f"https://api.github.com/repos/{install.REPOSITORY}/releases/latest":
         return json.dumps(release).encode()
     assert "/releases/download/v9.8.7/" in url, url
     name = url.rsplit("/", 1)[1]
-    if name == "SHA256SUMS":
-        return "".join(f"{digest}  {name}\n" for name, digest in checksums.items()).encode()
     return assets[name]
 
 install.download = fixture_download
@@ -75,6 +83,7 @@ with TemporaryDirectory() as directory:
     release["tag_name"] = "v9.8.8"
     assets["manifest.json"] = json.dumps({"id": install.PLUGIN, "version": "9.8.8"}).encode()
     checksums["manifest.json"] = hashlib.sha256(assets["manifest.json"]).hexdigest()
+    sync_digests()
     def next_release(url):
         return fixture_download(url.replace("/v9.8.8/", "/v9.8.7/"))
     install.download = next_release
@@ -83,26 +92,34 @@ with TemporaryDirectory() as directory:
 
     # Incomplete, preview or mismatched latest releases never replace installed files.
     original_manifest = assets["manifest.json"]
-    original_release = dict(release)
+    original_release = copy.deepcopy(release)
     installed_manifest = (target / "manifest.json").read_bytes()
-    for problem in ["preview", "missing", "manifest"]:
+    for problem in ["preview", "missing", "manifest", "missing-digest", "invalid-digest"]:
+        assets["manifest.json"] = original_manifest
+        checksums["manifest.json"] = hashlib.sha256(original_manifest).hexdigest()
         release.clear()
-        release.update(original_release)
+        release.update(copy.deepcopy(original_release))
         if problem == "preview":
             release["prerelease"] = True
         elif problem == "missing":
             release["assets"] = [{"name": "main.js"}]
+        elif problem == "missing-digest":
+            release["assets"][0]["digest"] = None
+        elif problem == "invalid-digest":
+            release["assets"][0]["digest"] = "sha512:unsupported"
         else:
             assets["manifest.json"] = b'{"id":"wrong-plugin","version":"9.8.8"}'
             checksums["manifest.json"] = hashlib.sha256(assets["manifest.json"]).hexdigest()
+            sync_digests()
         try:
             install.install(vault)
             raise AssertionError("Accepted an invalid latest release")
-        except ValueError:
-            pass
+        except ValueError as error:
+            expected = {"preview": "No stable", "missing": "missing required", "manifest": "Unexpected release manifest", "missing-digest": "invalid SHA-256", "invalid-digest": "invalid SHA-256"}
+            assert expected[problem] in str(error), str(error)
         assert (target / "manifest.json").read_bytes() == installed_manifest
     release.clear()
-    release.update(original_release)
+    release.update(copy.deepcopy(original_release))
     assets["manifest.json"] = original_manifest
     checksums["manifest.json"] = hashlib.sha256(original_manifest).hexdigest()
 

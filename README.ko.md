@@ -1,12 +1,14 @@
 # Superior Highlighter (Legacy)
 
+**0.1.3부터 지원 종료.** 이 배포는 이전 안내만 표시하는 Legacy 더미 플러그인입니다. 하이라이트·노트 읽기 및 수정·클립보드 접근·설정 변경을 수행하지 않습니다. 이 플러그인을 비활성화하고 [Superior Highlighter](https://community.obsidian.md/plugins/superior-highlighter)를 설치하세요. 현재 개발 저장소는 [Obsidian-Highlighter](https://github.com/owjxyz/Obsidian-Highlighter)입니다. 기존 노트와 설정은 그대로 유지합니다. 아래 기능 설명은 0.1.2까지의 과거 버전에 해당합니다.
+
 Obsidian 읽기 보기에서 선택한 부분을 정확하게 하이라이트합니다. 선택한 텍스트와 앞뒤 문맥을 함께 대조하고, `==🔴텍스트==` 형식으로 저장합니다.
 
 **개발자:** [WooJIN OH (owjxyz)](https://github.com/owjxyz)
 
-[GitHub 저장소](https://github.com/owjxyz/Obsidian-Superier-Highlighter) · [Obsidian 커뮤니티 등록 페이지](https://obsidian.md/plugins?id=superier-highlighter)
+[GitHub 저장소](https://github.com/owjxyz/Obsidian-Superior-Highlighter) · [Obsidian 커뮤니티 등록 페이지](https://obsidian.md/plugins?id=superier-highlighter)
 
-[ENGLISH](README.md)
+[KOREAN](README.ko.md) · [ENGLISH](README.md)
 
 ## 설치
 
@@ -19,13 +21,13 @@ Obsidian을 종료하고 대상 vault 폴더에서 실행합니다.
 **macOS (터미널)**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highlighter/main/install.py | python3 -
+curl -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superior-Highlighter/main/install.py | python3 -
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-curl.exe -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highlighter/main/install.py | py -3 -
+curl.exe -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superior-Highlighter/main/install.py | py -3 -
 ```
 
 반드시 `curl.exe`로 실행합니다. Windows PowerShell 5.1에서 `curl`은 `Invoke-WebRequest`의 별칭이므로 `-fsSL` 옵션을 인식하지 못합니다. `py`를 찾을 수 없지만 `python --version`이 Python 3.9 이상을 표시한다면 `py -3 -`를 `python -`로 바꿉니다.
@@ -37,7 +39,7 @@ curl.exe -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highli
 - 이미 설치된 Superior Highlighter (Legacy)의 설정은 보존합니다.
 - 스크립트를 실행할 때 업데이트하며, 상시 자동 업데이트는 등록하지 않습니다. 시험 배포는 제외하고 조회·검증에 실패하면 보관함을 변경하지 않습니다.
 
-수동 설치는 [최신 배포](https://github.com/owjxyz/Obsidian-Superier-Highlighter/releases/latest)에서 `main.js`, `manifest.json`, `styles.css`를 받아 `.obsidian/plugins/superier-highlighter/`에 넣고 활성화합니다.
+수동 설치는 [최신 배포](https://github.com/owjxyz/Obsidian-Superior-Highlighter/releases/latest)에서 `main.js`, `manifest.json`, `styles.css`를 받아 `.obsidian/plugins/superier-highlighter/`에 넣고 활성화합니다.
 
 ## 단축키
 
@@ -71,7 +73,7 @@ curl.exe -fsSL https://raw.githubusercontent.com/owjxyz/Obsidian-Superier-Highli
 
 릴리즈 자동화는 main 브랜치 변경과 버전 태그를 GitHub Actions에서 빌드·검사하고, 저장소에 기록된 체크섬을 확인한 뒤 `main.js`, `manifest.json`, `styles.css`의 빌드 출처 증명(GitHub artifact attestations)을 생성합니다. 버전 태그일 때만 같은 파일로 릴리즈 초안을 준비하며, 정식 공개는 별도로 진행합니다. **Verify release provenance**를 브랜치에서 수동 실행하면 빌드와 출처 증명만 수행하고 릴리즈는 생성하지 않습니다.
 
-이 자동화로 만든 배포 파일을 내려받은 뒤 `gh attestation verify main.js --repo owjxyz/Obsidian-Superier-Highlighter`로 출처를 검증할 수 있습니다(`manifest.json`, `styles.css`도 동일). `SHA256SUMS`는 터미널 설치 프로그램의 무결성 검증에 필요하므로 추가 배포 파일로 유지합니다. Obsidian은 이 파일을 내려받지 않습니다. 자동화 추가만으로 기존 릴리즈가 변경되지는 않습니다.
+이 자동화로 만든 배포 파일을 내려받은 뒤 `gh attestation verify main.js --repo owjxyz/Obsidian-Superior-Highlighter`로 출처를 검증할 수 있습니다(`manifest.json`, `styles.css`도 동일). 새 릴리즈에는 이 세 파일만 첨부합니다. 설치 프로그램은 GitHub Releases API의 SHA-256 값으로 검증하며, `SHA256SUMS`는 CI 검증용으로 저장소에 유지합니다. 자동화 추가만으로 기존 릴리즈가 변경되지는 않습니다.
 
 ## 개발
 

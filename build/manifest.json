@@ -1,9 +1,9 @@
 {
     "id": "superier-highlighter",
     "name": "Superior Highlighter (Legacy)",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "minAppVersion": "1.14.0",
-    "description": "Highlight exact selections in Reading View using surrounding context and native colours.",
+    "description": "Retired legacy version. Shows migration guidance to Superior Highlighter without changing notes or settings.",
     "author": "WooJIN OH",
     "authorUrl": "https://github.com/owjxyz",
     "isDesktopOnly": false
